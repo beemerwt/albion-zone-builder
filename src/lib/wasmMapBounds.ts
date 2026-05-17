@@ -22,7 +22,8 @@ export async function detectMapBoundsWithWasm(image: HTMLImageElement): Promise<
   x.drawImage(image, 0, 0);
   const imageData = x.getImageData(0, 0, c.width, c.height);
 
-  const wasm = await import("../wasm/map-bounds/wasm_map_bounds.js");
+  const wasmModulePath = "/src/wasm/map-bounds/wasm_map_bounds.js";
+  const wasm = await import(/* @vite-ignore */ wasmModulePath);
   if (typeof wasm.default === "function") {
     await wasm.default();
   }
