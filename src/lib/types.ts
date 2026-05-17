@@ -1,5 +1,5 @@
 export type Point = [number, number];
-export type CornerName = 'Top' | 'Right' | 'Bottom' | 'Left';
+export type CornerName = "Top" | "Right" | "Bottom" | "Left";
 
 export type PortData = {
   x: number;
