@@ -10,6 +10,49 @@ export type DetectResult = {
 
 type WorkerResult = Omit<DetectResult, "imageData">;
 
+type PendingDetection = {
+  resolve: (value: WorkerResult) => void;
+  reject: (reason?: unknown) => void;
+};
+
+let workerInstance: Worker | null = null;
+const pendingByRequestId = new Map<string, PendingDetection>();
+
+function ensureWorker(): Worker {
+  if (workerInstance) return workerInstance;
+
+  workerInstance = new Worker(new URL("../workers/mapBoundsWorker.ts", import.meta.url), {
+    type: "module",
+  });
+
+  workerInstance.onmessage = (event) => {
+    const data = event.data;
+    if (!data?.requestId) return;
+
+    if (data.type === "progress") {
+      console.debug(`[mapBoundsWorker] ${data.stage}`, data);
+      return;
+    }
+
+    if (data.type !== "result") return;
+
+    const pending = pendingByRequestId.get(data.requestId);
+    if (!pending) return;
+    pendingByRequestId.delete(data.requestId);
+
+    if (data.ok) pending.resolve(data.result as WorkerResult);
+    else pending.reject(new Error(data.error ?? "Map bounds worker failed"));
+  };
+
+  workerInstance.onerror = (event) => {
+    const err = new Error(`Map bounds worker crashed: ${event.message || "unknown error"}`);
+    for (const pending of pendingByRequestId.values()) pending.reject(err);
+    pendingByRequestId.clear();
+  };
+
+  return workerInstance;
+}
+
 export async function detectMapBoundsWithOpenCv(image: HTMLImageElement): Promise<DetectResult> {
   const fullCanvas = document.createElement("canvas");
   fullCanvas.width = image.width;
@@ -25,28 +68,19 @@ export async function detectMapBoundsWithOpenCv(image: HTMLImageElement): Promis
   detectCtx.drawImage(image, 0, 0);
   const detectImageData = detectCtx.getImageData(0, 0, detectCanvas.width, detectCanvas.height);
 
-  const worker = new Worker(new URL("../workers/mapBoundsWorker.ts", import.meta.url), {
-    type: "module",
+  const worker = ensureWorker();
+  const requestId = crypto.randomUUID();
+
+  const workerResult = await new Promise<WorkerResult>((resolve, reject) => {
+    pendingByRequestId.set(requestId, { resolve, reject });
+    worker.postMessage({ requestId, imageData: detectImageData });
   });
 
-  try {
-    const workerResult = await new Promise<WorkerResult>((resolve, reject) => {
-      worker.onmessage = (event) => {
-        if (event.data?.ok) resolve(event.data.result as WorkerResult);
-        else reject(new Error(event.data?.error ?? "Map bounds worker failed"));
-      };
-      worker.onerror = () => reject(new Error("Map bounds worker crashed"));
-      worker.postMessage({ imageData: detectImageData });
-    });
-
-    return {
-      imageData,
-      corners: workerResult.corners,
-      usedPadding: workerResult.usedPadding,
-      positiveLineCount: workerResult.positiveLineCount,
-      negativeLineCount: workerResult.negativeLineCount,
-    };
-  } finally {
-    worker.terminate();
-  }
+  return {
+    imageData,
+    corners: workerResult.corners,
+    usedPadding: workerResult.usedPadding,
+    positiveLineCount: workerResult.positiveLineCount,
+    negativeLineCount: workerResult.negativeLineCount,
+  };
 }

@@ -2,7 +2,19 @@ import cvModule from "@techstark/opencv-js";
 import type { Point } from "../lib/types";
 
 type WorkerRequest = {
+  requestId: string;
   imageData: ImageData;
+};
+
+type DetectTiming = {
+  runtimeInit: number;
+  matFromImageData: number;
+  grayscale: number;
+  blur: number;
+  canny: number;
+  hough: number;
+  lineParsing: number;
+  totalDetect: number;
 };
 
 type WorkerResponse = {
@@ -10,31 +22,61 @@ type WorkerResponse = {
   usedPadding: boolean;
   positiveLineCount: number;
   negativeLineCount: number;
-  timingMs?: {
-    runtimeInit: number;
-    detect: number;
-  };
+  timingMs?: DetectTiming;
 };
 
 let cvPromise: Promise<any> | null = null;
+let runtimeInitMs = 0;
+
+function postProgress(requestId: string, stage: string, extra?: Record<string, unknown>) {
+  self.postMessage({ type: "progress", requestId, stage, ...extra });
+}
+
+function missingApis(cv: any): string[] {
+  const missing: string[] = [];
+  if (!cv?.Mat) missing.push("cv.Mat");
+  if (!cv?.matFromImageData) missing.push("cv.matFromImageData");
+  if (!cv?.HoughLinesP) missing.push("cv.HoughLinesP");
+  return missing;
+}
 
 async function loadOpenCvInWorker(): Promise<any> {
   if (cvPromise) return cvPromise;
 
-  cvPromise = new Promise((resolve) => {
-    const startedAt = performance.now();
+  cvPromise = new Promise((resolve, reject) => {
+    const initStart = performance.now();
     const cv = cvModule as any;
+    const ready = () => {
+      const missing = missingApis(cv);
+      if (missing.length === 0) {
+        runtimeInitMs = performance.now() - initStart;
+        resolve(cv);
+        return true;
+      }
+      return false;
+    };
 
-    if (cv?.Mat) {
-      cv.__runtimeInitMs = 0;
-      resolve(cv);
-      return;
-    }
+    if (ready()) return;
+
+    const timer = setTimeout(() => {
+      const missing = missingApis(cv);
+      reject(new Error(`OpenCV init timed out after 10000ms; missing APIs: ${missing.join(", ")}`));
+    }, 10000);
 
     cv.onRuntimeInitialized = () => {
-      cv.__runtimeInitMs = performance.now() - startedAt;
-      resolve(cv);
+      if (!ready()) {
+        clearTimeout(timer);
+        const missing = missingApis(cv);
+        reject(
+          new Error(`OpenCV runtime initialized but APIs still missing: ${missing.join(", ")}`),
+        );
+        return;
+      }
+      clearTimeout(timer);
     };
+  }).catch((err) => {
+    cvPromise = null;
+    throw err;
   });
 
   return cvPromise;
@@ -52,7 +94,7 @@ function intersectLines(L1: any, L2: any): Point {
   return [(b2 * c1 - b1 * c2) / d, (a1 * c2 - a2 * c1) / d];
 }
 
-function detectFromImageData(cv: any, imageData: ImageData): WorkerResponse {
+function detectFromImageData(cv: any, imageData: ImageData, requestId: string): WorkerResponse {
   const fallback = {
     Top: [(imageData.width - 1) / 2, 0],
     Right: [imageData.width - 1, (imageData.height - 1) / 2],
@@ -60,26 +102,65 @@ function detectFromImageData(cv: any, imageData: ImageData): WorkerResponse {
     Left: [0, (imageData.height - 1) / 2],
   } as Record<"Top" | "Right" | "Bottom" | "Left", Point>;
 
-  const detectStart = performance.now();
+  const totalStart = performance.now();
+  const timing: DetectTiming = {
+    runtimeInit: runtimeInitMs,
+    matFromImageData: 0,
+    grayscale: 0,
+    blur: 0,
+    canny: 0,
+    hough: 0,
+    lineParsing: 0,
+    totalDetect: 0,
+  };
+
+  postProgress(requestId, "matFromImageData started");
+  const tMat = performance.now();
   const src = cv.matFromImageData(imageData);
+  timing.matFromImageData = performance.now() - tMat;
+  postProgress(requestId, "matFromImageData done", { ms: timing.matFromImageData });
+
   const gray = new cv.Mat();
   const edges = new cv.Mat();
   const lines = new cv.Mat();
 
   try {
+    const tGray = performance.now();
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    timing.grayscale = performance.now() - tGray;
+    postProgress(requestId, "grayscale done", { ms: timing.grayscale });
+
+    const tBlur = performance.now();
     cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
+    timing.blur = performance.now() - tBlur;
+    postProgress(requestId, "blur done", { ms: timing.blur });
+
+    const tCanny = performance.now();
     cv.Canny(gray, edges, 50, 150);
+    timing.canny = performance.now() - tCanny;
+    postProgress(requestId, "canny done", { ms: timing.canny });
+
+    postProgress(requestId, "hough started");
+    const tHough = performance.now();
     cv.HoughLinesP(
       edges,
       lines,
       1,
       Math.PI / 180,
-      60,
-      Math.max(160, Math.min(imageData.width, imageData.height) * 0.28),
-      Math.max(15, Math.min(imageData.width, imageData.height) * 0.035),
+      100,
+      Math.max(180, Math.min(imageData.width, imageData.height) * 0.35),
+      Math.max(10, Math.min(imageData.width, imageData.height) * 0.02),
     );
+    timing.hough = performance.now() - tHough;
+    postProgress(requestId, "hough done", { ms: timing.hough, rows: lines.rows });
 
+    if (lines.rows > 25000) {
+      throw new Error(
+        `HoughLinesP produced too many rows (${lines.rows}); aborting parse for safety`,
+      );
+    }
+
+    const tParse = performance.now();
     const pos: any[] = [];
     const neg: any[] = [];
 
@@ -95,14 +176,18 @@ function detectFromImageData(cv: any, imageData: ImageData): WorkerResponse {
       const b = y1 - m * x1;
       (m > 0 ? pos : neg).push({ x1, y1, x2, y2, b });
     }
+    timing.lineParsing = performance.now() - tParse;
+
+    timing.totalDetect = performance.now() - totalStart;
 
     if (pos.length < 2 || neg.length < 2) {
+      postProgress(requestId, "detection complete", { fallback: true });
       return {
         corners: fallback,
         usedPadding: false,
         positiveLineCount: pos.length,
         negativeLineCount: neg.length,
-        timingMs: { runtimeInit: cv.__runtimeInitMs ?? 0, detect: performance.now() - detectStart },
+        timingMs: timing,
       };
     }
 
@@ -114,6 +199,7 @@ function detectFromImageData(cv: any, imageData: ImageData): WorkerResponse {
     const tl = fit(neg, "min");
     const br = fit(neg, "max");
 
+    postProgress(requestId, "detection complete", { fallback: false });
     return {
       corners: {
         Top: intersectLines(tl, tr),
@@ -124,7 +210,7 @@ function detectFromImageData(cv: any, imageData: ImageData): WorkerResponse {
       usedPadding: false,
       positiveLineCount: pos.length,
       negativeLineCount: neg.length,
-      timingMs: { runtimeInit: cv.__runtimeInitMs ?? 0, detect: performance.now() - detectStart },
+      timingMs: timing,
     };
   } finally {
     src.delete();
@@ -135,12 +221,21 @@ function detectFromImageData(cv: any, imageData: ImageData): WorkerResponse {
 }
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
+  const { requestId, imageData } = event.data;
+  postProgress(requestId, "worker received message", {
+    width: imageData.width,
+    height: imageData.height,
+  });
+
   try {
     const cv = await loadOpenCvInWorker();
-    const result = detectFromImageData(cv, event.data.imageData);
-    self.postMessage({ ok: true, result });
+    postProgress(requestId, "OpenCV loaded", { runtimeInitMs });
+    const result = detectFromImageData(cv, imageData, requestId);
+    self.postMessage({ type: "result", requestId, ok: true, result });
   } catch (error) {
     self.postMessage({
+      type: "result",
+      requestId,
       ok: false,
       error: error instanceof Error ? error.message : "Unknown worker error",
     });
