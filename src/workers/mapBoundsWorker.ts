@@ -1,3 +1,4 @@
+import cvModule from "@techstark/opencv-js";
 import type { Point } from "../lib/types";
 
 type WorkerRequest = {
@@ -18,26 +19,22 @@ type WorkerResponse = {
 let cvPromise: Promise<any> | null = null;
 
 async function loadOpenCvInWorker(): Promise<any> {
-  if ((self as any).cv?.Mat) return (self as any).cv;
   if (cvPromise) return cvPromise;
 
-  cvPromise = new Promise(async (resolve, reject) => {
-    try {
-      const startedAt = performance.now();
-      (self as any).Module = {
-        onRuntimeInitialized: () => {
-          const cv = (self as any).cv;
-          (cv as any).__runtimeInitMs = performance.now() - startedAt;
-          resolve(cv);
-        },
-      };
-      const response = await fetch("/opencv.js");
-      if (!response.ok) throw new Error(`OpenCV.js fetch failed: ${response.status}`);
-      const source = await response.text();
-      eval(source);
-    } catch (err) {
-      reject(err);
+  cvPromise = new Promise((resolve) => {
+    const startedAt = performance.now();
+    const cv = cvModule as any;
+
+    if (cv?.Mat) {
+      cv.__runtimeInitMs = 0;
+      resolve(cv);
+      return;
     }
+
+    cv.onRuntimeInitialized = () => {
+      cv.__runtimeInitMs = performance.now() - startedAt;
+      resolve(cv);
+    };
   });
 
   return cvPromise;
