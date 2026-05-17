@@ -1,2 +1,58 @@
 import { useEffect, useRef } from 'react';
-export default function MapCanvas({image,corners,ports,onClick,project}:{image:HTMLImageElement|null;corners:any;ports:any[];onClick:(x:number,y:number)=>void;project:(u:number,v:number)=>[number,number]|null}){const ref=useRef<HTMLCanvasElement>(null); useEffect(()=>{const c=ref.current;if(!c||!image)return; c.width=c.clientWidth;c.height=c.clientHeight; const ctx=c.getContext('2d')!;ctx.clearRect(0,0,c.width,c.height); const scale=Math.min(c.width/image.width,c.height/image.height); const ox=0,oy=(c.height-image.height*scale)/2; ctx.drawImage(image,ox,oy,image.width*scale,image.height*scale); const toC=(x:number,y:number)=>[x*scale+ox,y*scale+oy]; if(corners){ctx.strokeStyle='cyan';ctx.lineWidth=2; const pts=['Top','Right','Bottom','Left'].map(k=>toC(corners[k][0],corners[k][1])); ctx.beginPath(); pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.closePath(); ctx.stroke();} ports.forEach(p=>{const q=project(p.x,p.y); if(!q)return; const [x,y]=toC(q[0],q[1]); ctx.fillStyle='red';ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fill();ctx.fillStyle='white';ctx.fillText(p.name,x+8,y);}); c.onclick=(e)=>{const r=c.getBoundingClientRect(); onClick((e.clientX-r.left-ox)/scale,(e.clientY-r.top-oy)/scale);} },[image,corners,ports,project,onClick]); return <canvas ref={ref} className='map-canvas w-100 h-100'/> }
+
+export default function MapCanvas({ image, corners, ports, project, onClick }: {
+  image: HTMLImageElement | null;
+  corners: Record<string, [number, number]> | null;
+  ports: Array<{ name: string; x: number; y: number }>;
+  project: (u: number, v: number) => [number, number] | null;
+  onClick: (x: number, y: number) => void;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || !image) return;
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
+    const ox = 0;
+    const oy = (canvas.height - image.height * scale) / 2;
+    const toCanvas = (x: number, y: number): [number, number] => [x * scale + ox, y * scale + oy];
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, ox, oy, image.width * scale, image.height * scale);
+
+    if (corners) {
+      const names = ['Top', 'Right', 'Bottom', 'Left'];
+      const pts = names.map((n) => toCanvas(corners[n][0], corners[n][1]));
+      ctx.strokeStyle = 'cyan';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+      ctx.closePath();
+      ctx.stroke();
+    }
+
+    for (const p of ports) {
+      const q = project(p.x, p.y);
+      if (!q) continue;
+      const [x, y] = toCanvas(q[0], q[1]);
+      ctx.fillStyle = 'red';
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'white';
+      ctx.fillText(p.name, x + 8, y);
+    }
+
+    canvas.onclick = (e) => {
+      const r = canvas.getBoundingClientRect();
+      onClick((e.clientX - r.left - ox) / scale, (e.clientY - r.top - oy) / scale);
+    };
+  }, [image, corners, ports, project, onClick]);
+
+  return <canvas ref={ref} className="map-canvas w-100 h-100" />;
+}
