@@ -1,6 +1,12 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef } from "react";
 
-export default function MapCanvas({ image, corners, ports, project, onClick }: {
+export default function MapCanvas({
+  image,
+  corners,
+  ports,
+  project,
+  onClick,
+}: {
   image: HTMLImageElement | null;
   corners: Record<string, [number, number]> | null;
   ports: Array<{ name: string; x: number; y: number }>;
@@ -14,7 +20,7 @@ export default function MapCanvas({ image, corners, ports, project, onClick }: {
     if (!canvas || !image) return;
     canvas.width = canvas.clientWidth;
     canvas.height = canvas.clientHeight;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
@@ -26,12 +32,12 @@ export default function MapCanvas({ image, corners, ports, project, onClick }: {
     ctx.drawImage(image, ox, oy, image.width * scale, image.height * scale);
 
     if (corners) {
-      const names = ['Top', 'Right', 'Bottom', 'Left'];
+      const names = ["Top", "Right", "Bottom", "Left"];
       const pts = names.map((n) => toCanvas(corners[n][0], corners[n][1]));
-      ctx.strokeStyle = 'cyan';
+      ctx.strokeStyle = "cyan";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+      pts.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
       ctx.closePath();
       ctx.stroke();
     }
@@ -40,11 +46,11 @@ export default function MapCanvas({ image, corners, ports, project, onClick }: {
       const q = project(p.x, p.y);
       if (!q) continue;
       const [x, y] = toCanvas(q[0], q[1]);
-      ctx.fillStyle = 'red';
+      ctx.fillStyle = "red";
       ctx.beginPath();
       ctx.arc(x, y, 6, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = 'white';
+      ctx.fillStyle = "white";
       ctx.fillText(p.name, x + 8, y);
     }
 
