@@ -48,7 +48,7 @@ export default function PortRow({
             }
           />
         </div>
-        <div className="col-md-3">
+        <div className="col-md-5">
           <label className="form-label small">x, y</label>
           <input
             className="form-control"
@@ -64,7 +64,7 @@ export default function PortRow({
             }}
           />
         </div>
-        <div className="col-md-3">
+        <div className="col-md-4">
           <button
             className={`btn w-100 ${active ? "btn-warning" : "btn-outline-primary"}`}
             onClick={() => onToggle(index)}
@@ -74,7 +74,7 @@ export default function PortRow({
         </div>
       </div>
       <div className="row g-2 align-items-end mt-1">
-        <div className="col-md-6">
+        <div className="col-md-7">
           <label className="form-label small">Connect zone</label>
           <SearchableDropdown
             options={zoneOptions}
@@ -90,10 +90,8 @@ export default function PortRow({
             onChange={(v) => onChange(index, { ...row, port: v.toUpperCase() })}
           />
         </div>
-        <div className="col-md-2">
-          <button className="btn btn-outline-danger w-100" onClick={() => onRemove(index)}>
-            X
-          </button>
+        <div className="col-md-1">
+          <button className="btn btn-outline-danger p-1 w-100" onClick={() => onRemove(index)}>X</button>
         </div>
       </div>
     </div>
