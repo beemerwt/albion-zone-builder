@@ -110,7 +110,7 @@ export default function App() {
       />
 
       <div className="flex-grow-1 d-flex overflow-hidden">
-        <div className="border-end p-2" style={{ width: 620, overflow: "auto" }}>
+        <div className="border-end p-2 flex-grow-1" style={{ overflow: "auto", minWidth: 0 }}>
           <label className="form-label small">Zone</label>
           <SearchableDropdown
             options={zoneOptions}
@@ -146,7 +146,7 @@ export default function App() {
             />
           </div>
         </div>
-        <div className="flex-grow-1">
+        <div className="flex-shrink-1" style={{ flexBasis: "45%", minWidth: 320 }}>
           <MapCanvas
             image={image}
             corners={corners}
