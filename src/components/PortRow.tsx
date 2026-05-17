@@ -91,7 +91,9 @@ export default function PortRow({
           />
         </div>
         <div className="col-md-1">
-          <button className="btn btn-outline-danger p-1 w-100" onClick={() => onRemove(index)}>X</button>
+          <button className="btn btn-outline-danger p-1 w-100" onClick={() => onRemove(index)}>
+            X
+          </button>
         </div>
       </div>
     </div>
