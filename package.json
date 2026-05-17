@@ -10,7 +10,9 @@
     "prepare": "husky",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "format:staged": "lint-staged"
+    "format:staged": "lint-staged",
+    "wasm:build": "cd wasm-map-bounds && wasm-pack build --target web --out-dir ../src/wasm/map-bounds",
+    "wasm:test": "cd wasm-map-bounds && cargo test"
   },
   "dependencies": {
     "@techstark/opencv-js": "^4.12.0-release.1",
