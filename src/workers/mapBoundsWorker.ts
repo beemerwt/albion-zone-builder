@@ -31,7 +31,7 @@ async function loadOpenCvInWorker(): Promise<any> {
           resolve(cv);
         },
       };
-      const response = await fetch("https://docs.opencv.org/4.10.0/opencv.js");
+      const response = await fetch("/opencv.js");
       if (!response.ok) throw new Error(`OpenCV.js fetch failed: ${response.status}`);
       const source = await response.text();
       eval(source);
