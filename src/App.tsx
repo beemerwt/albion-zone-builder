@@ -5,7 +5,6 @@ import SearchableDropdown from "./components/SearchableDropdown";
 import Toolbar from "./components/Toolbar";
 import { applyAffine, clamp01, computeAffine, fallbackCorners } from "./lib/affine";
 import { detectMapBoundsWithOpenCv } from "./lib/mapBounds";
-import { loadOpenCv } from "./lib/opencvLoader";
 import { PortData, WorldJson, Zone } from "./lib/types";
 import { downloadJson, parseWorldFile } from "./lib/worldJson";
 import { PortRowState } from "./components/PortRow";
@@ -30,6 +29,7 @@ export default function App() {
   const [rows, setRows] = useState<PortRowState[]>([]);
   const [selecting, setSelecting] = useState<number | null>(null);
   const [status, setStatus] = useState("Open world.json and screenshot.");
+  const [detecting, setDetecting] = useState(false);
 
   const zones = world?.zones ?? [];
   const zoneByName = useMemo(
@@ -89,9 +89,10 @@ export default function App() {
           const img = new Image();
           img.onload = async () => {
             setImage(img);
+            setDetecting(true);
+            setStatus("Detecting map bounds...");
             try {
-              const cv = await loadOpenCv();
-              const detected = detectMapBoundsWithOpenCv(cv, img);
+              const detected = await detectMapBoundsWithOpenCv(img);
               setCorners(detected.corners as any);
               setAffine(computeAffine(detected.corners as any));
               setStatus(
@@ -102,6 +103,8 @@ export default function App() {
               setCorners(c);
               setAffine(computeAffine(c));
               setStatus("OpenCV detection failed; using fallback corners.");
+            } finally {
+              setDetecting(false);
             }
           };
           img.src = url;
@@ -116,7 +119,7 @@ export default function App() {
             options={zoneOptions}
             value={zoneName}
             onChange={onSelectZone}
-            isDisabled={!world}
+            isDisabled={!world || detecting}
           />
           <div className="mt-2">
             <PortsEditor
