@@ -98,7 +98,8 @@ export default function App() {
               setStatus(
                 `Detected map bounds (+${detected.positiveLineCount}/-${detected.negativeLineCount}).`,
               );
-            } catch {
+            } catch (error) {
+              console.error("OpenCV map-bound detection failed", error);
               const c = fallbackCorners(img.width, img.height);
               setCorners(c);
               setAffine(computeAffine(c));
