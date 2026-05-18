@@ -128,6 +128,10 @@ fn rgba_to_gray(width: usize, height: usize, rgba: &[u8]) -> Vec<u8> {
 }
 
 fn sobel_edges(width: usize, height: usize, gray: &[u8]) -> Vec<u8> {
+    if width < 3 || height < 3 {
+        return vec![0u8; width * height];
+    }
+
     let mut mag = vec![0u16; width * height];
     let mut max_mag = 1u16;
     for y in 1..(height - 1) {
@@ -150,6 +154,10 @@ fn sobel_edges(width: usize, height: usize, gray: &[u8]) -> Vec<u8> {
 }
 
 fn constrained_hough(width: usize, height: usize, edges: &[u8]) -> (Vec<PolarLine>, Vec<PolarLine>) {
+    if width < 3 || height < 3 {
+        return (Vec::new(), Vec::new());
+    }
+
     let diag = (((width * width + height * height) as f32).sqrt()).ceil() as i32;
     let rho_bins = (diag * 2 + 1) as usize;
 

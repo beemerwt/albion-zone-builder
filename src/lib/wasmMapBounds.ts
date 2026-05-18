@@ -31,7 +31,7 @@ export async function detectMapBoundsWithWasm(image: HTMLImageElement): Promise<
   const result = wasm.detect_map_bounds_rgba(
     image.width,
     image.height,
-    new Uint8Array(imageData.data.buffer),
+    new Uint8Array(imageData.data),
   ) as WasmDetectResult;
 
   return {
