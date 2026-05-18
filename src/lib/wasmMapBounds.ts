@@ -1,17 +1,26 @@
 import type { DetectResult } from "./mapBounds";
 
+export type WasmDebug = {
+  width: number;
+  height: number;
+  expected_rgba_len: number;
+  actual_rgba_len: number;
+  total_raw_line_count: number;
+  accepted_positive_line_count: number;
+  accepted_negative_line_count: number;
+  accepted_lines: Array<Record<string, number | string>>;
+  top_right?: Record<string, unknown>;
+  bottom_left?: Record<string, unknown>;
+  top_left?: Record<string, unknown>;
+  bottom_right?: Record<string, unknown>;
+};
+
 type WasmDetectResult = {
   corners: DetectResult["corners"];
   usedPadding: boolean;
   positiveLineCount: number;
   negativeLineCount: number;
-  timingMs?: {
-    grayscale: number;
-    edges: number;
-    hough: number;
-    lineParsing: number;
-    totalDetect: number;
-  };
+  debug?: WasmDebug;
 };
 
 type WasmModule = {
@@ -97,6 +106,7 @@ export async function detectMapBoundsWithWasm(image: HTMLImageElement): Promise<
     const result = wasm.detect_map_bounds_rgba(image.width, image.height, rgba);
     if (!result?.corners) throw new Error("WASM detector returned an invalid result payload");
 
+    (window as any).__wasmMapBoundsDebug = result.debug;
     return {
       imageData,
       corners: result.corners,
