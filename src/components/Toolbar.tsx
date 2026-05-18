@@ -3,6 +3,7 @@ export default function Toolbar({
   onExport,
   onOpenAddZone,
   onOpenDeleteZone,
+  onClearCache,
   status,
   canEditWorld,
   canDeleteZone,
@@ -11,6 +12,7 @@ export default function Toolbar({
   onExport: () => void;
   onOpenAddZone: () => void;
   onOpenDeleteZone: () => void;
+  onClearCache: () => void;
   status: string;
   canEditWorld: boolean;
   canDeleteZone: boolean;
@@ -40,6 +42,13 @@ export default function Toolbar({
         disabled={!canDeleteZone}
       >
         Delete Zone
+      </button>
+      <button
+        className="btn btn-outline-warning btn-sm"
+        onClick={onClearCache}
+        disabled={!canEditWorld}
+      >
+        Clear Cache
       </button>
       <button className="btn btn-primary btn-sm" onClick={onExport} disabled={!canEditWorld}>
         Export JSON

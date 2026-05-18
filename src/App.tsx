@@ -96,11 +96,8 @@ export default function App() {
       if (cached) {
         if (!mounted) return;
         setWorld(cached);
-        const firstId = cached.zones
-          .map((z) => String(z.id ?? ""))
-          .filter(Boolean)
-          .sort()[0];
-        if (firstId) selectZoneById(firstId, cached);
+        setZoneId("");
+        setRows([]);
         setStatus(`Loaded ${cached.zones.length} zones from local cache.`);
         return;
       }
@@ -109,11 +106,8 @@ export default function App() {
         const serverWorld = await fetchServerWorld();
         if (!mounted) return;
         persistWorld(serverWorld);
-        const firstId = serverWorld.zones
-          .map((z) => String(z.id ?? ""))
-          .filter(Boolean)
-          .sort()[0];
-        if (firstId) selectZoneById(firstId, serverWorld);
+        setZoneId("");
+        setRows([]);
         setStatus(`Loaded ${serverWorld.zones.length} zones from /world.json.`);
       } catch (error) {
         console.error(error);
@@ -203,6 +197,19 @@ export default function App() {
         canDeleteZone={Boolean(world && zoneId)}
         onOpenAddZone={() => setAddOpen(true)}
         onOpenDeleteZone={() => setDeleteOpen(true)}
+        onClearCache={async () => {
+          try {
+            const serverWorld = await fetchServerWorld();
+            persistWorld(serverWorld);
+            setZoneId("");
+            setRows([]);
+            setSelecting(null);
+            setStatus("Cache cleared and reloaded from /world.json.");
+          } catch (error) {
+            console.error(error);
+            setStatus("Failed to clear cache: unable to reload /world.json.");
+          }
+        }}
         onImage={(file) => {
           const url = URL.createObjectURL(file);
           const img = new Image();
@@ -250,6 +257,7 @@ export default function App() {
             value={zoneId}
             onChange={(id) => selectZoneById(id)}
             isDisabled={!world || detecting}
+            placeholder="Select..."
           />
           <div className="mt-2">
             <PortsEditor
