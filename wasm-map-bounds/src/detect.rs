@@ -1,17 +1,7 @@
 use serde::Serialize;
 use std::f32::consts::PI;
-use std::time::Instant;
 
 pub type Point = [f32; 2];
-
-#[derive(Debug, Clone, Serialize)]
-pub struct TimingMs {
-    pub grayscale: f32,
-    pub edges: f32,
-    pub hough: f32,
-    pub line_parsing: f32,
-    pub total_detect: f32,
-}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DetectResult {
@@ -22,8 +12,6 @@ pub struct DetectResult {
     pub positive_line_count: usize,
     #[serde(rename = "negativeLineCount")]
     pub negative_line_count: usize,
-    #[serde(rename = "timingMs")]
-    pub timing_ms: Option<TimingMs>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,27 +55,14 @@ pub fn detect_map_bounds_rgba_native(width: u32, height: u32, rgba: &[u8]) -> Re
         return Err(format!("invalid RGBA length {}, expected {} for {width}x{height} RGBA image", rgba.len(), expected_len));
     }
 
-    let total_start = Instant::now();
-
-    let t_gray = Instant::now();
     let gray = rgba_to_gray(width as usize, height as usize, rgba);
-    let grayscale_ms = t_gray.elapsed().as_secs_f32() * 1000.0;
-
-    let t_edges = Instant::now();
     let edges = sobel_edges(width as usize, height as usize, &gray);
-    let edges_ms = t_edges.elapsed().as_secs_f32() * 1000.0;
-
-    let t_hough = Instant::now();
     let (pos, neg) = constrained_hough(width as usize, height as usize, &edges);
-    let hough_ms = t_hough.elapsed().as_secs_f32() * 1000.0;
-
-    let t_parse = Instant::now();
     let mut result = DetectResult {
         corners: fallback_corners(width, height),
         used_padding: false,
         positive_line_count: pos.len(),
         negative_line_count: neg.len(),
-        timing_ms: None,
     };
 
     if pos.len() >= 2 && neg.len() >= 2 {
@@ -106,15 +81,6 @@ pub fn detect_map_bounds_rgba_native(width: u32, height: u32, rgba: &[u8]) -> Re
             result.corners = Corners { top, right, bottom, left };
         }
     }
-
-    let line_parsing_ms = t_parse.elapsed().as_secs_f32() * 1000.0;
-    result.timing_ms = Some(TimingMs {
-        grayscale: grayscale_ms,
-        edges: edges_ms,
-        hough: hough_ms,
-        line_parsing: line_parsing_ms,
-        total_detect: total_start.elapsed().as_secs_f32() * 1000.0,
-    });
 
     Ok(result)
 }
