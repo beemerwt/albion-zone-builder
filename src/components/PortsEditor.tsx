@@ -6,6 +6,7 @@ export default function PortsEditor({
   selecting,
   zoneOptions,
   zonePortsByZoneId,
+  isDisabled,
   onAdd,
   onChange,
   onRemove,
@@ -15,6 +16,7 @@ export default function PortsEditor({
   selecting: number | null;
   zoneOptions: Option[];
   zonePortsByZoneId: Record<string, string[]>;
+  isDisabled: boolean;
   onAdd: () => void;
   onChange: (index: number, row: PortRowState) => void;
   onRemove: (index: number) => void;
@@ -22,6 +24,16 @@ export default function PortsEditor({
 }) {
   return (
     <div>
+      <div className="d-flex align-items-center gap-2 mb-2">
+        <label className="small flex-grow-1">Ports</label>
+        <button
+          className={"btn btn-sm btn-outline-success" + (isDisabled ? " disabled" : "")}
+          onClick={onAdd}
+        >
+          Add Port
+        </button>
+      </div>
+
       {rows.map((r, i) => (
         <PortRow
           key={r.key}
@@ -35,9 +47,6 @@ export default function PortsEditor({
           onToggle={onToggle}
         />
       ))}
-      <button className="btn btn-sm btn-outline-success" onClick={onAdd}>
-        Add Port
-      </button>
     </div>
   );
 }

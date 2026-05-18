@@ -273,10 +273,11 @@ export default function App() {
               selecting={selecting}
               zoneOptions={zoneIdOptions}
               zonePortsByZoneId={zonePortsByZoneId}
+              isDisabled={!zone}
               onAdd={() => {
                 const next = [
                   ...rows,
-                  { key: crypto.randomUUID(), name: "NE", x: 0, y: 0, zoneId: "", port: "" },
+                  { key: crypto.randomUUID(), name: "", x: 0, y: 0, zoneId: "", port: "" },
                 ];
                 setRows(next);
                 syncZone(next);
