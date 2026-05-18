@@ -339,9 +339,12 @@ export default function App() {
           {addError && <div className="text-danger small mt-1">{addError}</div>}
         </div>
         <div className="modal-footer">
+          <button type="button" className="btn btn-primary me-2 mt-2" onClick={onAddZoneSubmit}>
+            OK
+          </button>
           <button
             type="button"
-            className="btn btn-secondary"
+            className="btn btn-secondary mt-2"
             onClick={() => {
               setAddOpen(false);
               setAddName("");
@@ -350,20 +353,21 @@ export default function App() {
           >
             Cancel
           </button>
-          <button type="button" className="btn btn-primary" onClick={onAddZoneSubmit}>
-            OK
-          </button>
         </div>
       </Modal>
 
       <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)}>
         <div className="modal-body">Are you sure you want to delete {zone?.name ?? zoneId}</div>
         <div className="modal-footer">
-          <button type="button" className="btn btn-secondary" onClick={() => setDeleteOpen(false)}>
-            No
-          </button>
-          <button type="button" className="btn btn-danger" onClick={onDeleteZone}>
+          <button type="button" className="btn btn-danger me-2 mt-2" onClick={onDeleteZone}>
             Yes
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary mt-2"
+            onClick={() => setDeleteOpen(false)}
+          >
+            No
           </button>
         </div>
       </Modal>
