@@ -47,10 +47,17 @@ function ViewerContent({
 }: ViewerContentProps) {
   const { resetTransform } = useControls();
   const contentRef = useRef<HTMLDivElement>(null);
+  const lastResetKeyRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
+    if (lastResetKeyRef.current === undefined) {
+      lastResetKeyRef.current = resetKey;
+      return;
+    }
+    if (lastResetKeyRef.current === resetKey) return;
+    lastResetKeyRef.current = resetKey;
     resetTransform(0);
-  }, [resetTransform, resetKey]);
+  }, [resetKey, resetTransform]);
 
   const style = useMemo(
     () => ({ width: `${imageWidth}px`, height: `${imageHeight}px` }),

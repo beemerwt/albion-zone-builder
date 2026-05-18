@@ -51,6 +51,7 @@ export default function PortRow({
         <div className="col-md-5">
           <label className="form-label small">x, y</label>
           <input
+            key={`coords-${row.x}-${row.y}`}
             className="form-control"
             defaultValue={`${row.x.toFixed(4)}, ${row.y.toFixed(4)}`}
             onBlur={(e) => {
