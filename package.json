@@ -12,7 +12,8 @@
     "format:check": "prettier . --check",
     "format:staged": "lint-staged",
     "wasm:build": "cd wasm-map-bounds && wasm-pack build --target web --out-dir ../src/wasm/map-bounds",
-    "wasm:test": "cd wasm-map-bounds && cargo test"
+    "wasm:test": "cd wasm-map-bounds && cargo test",
+    "wasm:clean": "rm -rf src/wasm/map-bounds/wasm_map_bounds* src/wasm/map-bounds/*.wasm node_modules/.vite"
   },
   "dependencies": {
     "@techstark/opencv-js": "^4.12.0-release.1",
