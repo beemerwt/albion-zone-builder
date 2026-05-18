@@ -107,8 +107,34 @@ export default function ImageViewer({
   className,
   resetKey,
 }: ImageViewerProps) {
+  const viewerRef = useRef<HTMLDivElement>(null);
+
+  const clampPanPosition = (
+    scale: number,
+    positionX: number,
+    positionY: number,
+  ): { x: number; y: number } | null => {
+    if (!viewerRef.current || !imageWidth || !imageHeight) return null;
+    const viewportWidth = viewerRef.current.clientWidth;
+    const viewportHeight = viewerRef.current.clientHeight;
+    if (!viewportWidth || !viewportHeight) return null;
+
+    const scaledWidth = imageWidth * scale;
+    const scaledHeight = imageHeight * scale;
+
+    const minX = viewportWidth - scaledWidth - viewportWidth * 0.8;
+    const maxX = viewportWidth * 0.8;
+    const minY = viewportHeight - scaledHeight - viewportHeight * 0.8;
+    const maxY = viewportHeight * 0.8;
+
+    return {
+      x: Math.max(minX, Math.min(maxX, positionX)),
+      y: Math.max(minY, Math.min(maxY, positionY)),
+    };
+  };
+
   return (
-    <div className={`image-viewer ${className ?? ""}`.trim()}>
+    <div ref={viewerRef} className={`image-viewer ${className ?? ""}`.trim()}>
       {imageUrl && imageWidth && imageHeight ? (
         <TransformWrapper
           minScale={0.5}
@@ -119,6 +145,12 @@ export default function ImageViewer({
           wheel={{ step: 0.15 }}
           doubleClick={{ disabled: true }}
           panning={{ disabled: false }}
+          onTransformed={(ref, state) => {
+            const clamped = clampPanPosition(state.scale, state.positionX, state.positionY);
+            if (!clamped) return;
+            if (clamped.x === state.positionX && clamped.y === state.positionY) return;
+            ref.setTransform(clamped.x, clamped.y, state.scale, 0);
+          }}
         >
           <ViewerContent
             imageUrl={imageUrl}
