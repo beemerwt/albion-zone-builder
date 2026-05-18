@@ -5,7 +5,7 @@ import SearchableDropdown from "./components/SearchableDropdown";
 import Toolbar from "./components/Toolbar";
 import { applyAffine, clamp01, computeAffine, fallbackCorners } from "./lib/affine";
 import { detectMapBoundsWithOpenCv } from "./lib/mapBounds";
-import { loadOpenCv } from "./lib/opencvLoader";
+import { detectMapBoundsWithWasm } from "./lib/wasmMapBounds";
 import { PortData, WorldJson, Zone } from "./lib/types";
 import { downloadJson, parseWorldFile } from "./lib/worldJson";
 import { PortRowState } from "./components/PortRow";
@@ -30,6 +30,7 @@ export default function App() {
   const [rows, setRows] = useState<PortRowState[]>([]);
   const [selecting, setSelecting] = useState<number | null>(null);
   const [status, setStatus] = useState("Open world.json and screenshot.");
+  const [detecting, setDetecting] = useState(false);
 
   const zones = world?.zones ?? [];
   const zoneByName = useMemo(
@@ -89,19 +90,33 @@ export default function App() {
           const img = new Image();
           img.onload = async () => {
             setImage(img);
+            setDetecting(true);
+            setStatus("Detecting map bounds...");
             try {
-              const cv = await loadOpenCv();
-              const detected = detectMapBoundsWithOpenCv(cv, img);
+              const detected = await detectMapBoundsWithWasm(img);
               setCorners(detected.corners as any);
               setAffine(computeAffine(detected.corners as any));
               setStatus(
-                `Detected map bounds (+${detected.positiveLineCount}/-${detected.negativeLineCount}).`,
+                `Detected map bounds with WASM (+${detected.positiveLineCount}/-${detected.negativeLineCount}).`,
               );
-            } catch {
-              const c = fallbackCorners(img.width, img.height);
-              setCorners(c);
-              setAffine(computeAffine(c));
-              setStatus("OpenCV detection failed; using fallback corners.");
+            } catch (wasmError) {
+              console.error("WASM map-bound detection failed", wasmError);
+              try {
+                const detected = await detectMapBoundsWithOpenCv(img);
+                setCorners(detected.corners as any);
+                setAffine(computeAffine(detected.corners as any));
+                setStatus(
+                  `Detected map bounds with OpenCV fallback (+${detected.positiveLineCount}/-${detected.negativeLineCount}).`,
+                );
+              } catch (opencvError) {
+                console.error("OpenCV map-bound detection failed", opencvError);
+                const c = fallbackCorners(img.width, img.height);
+                setCorners(c);
+                setAffine(computeAffine(c));
+                setStatus("WASM and OpenCV detection failed; using fallback corners.");
+              }
+            } finally {
+              setDetecting(false);
             }
           };
           img.src = url;
@@ -116,7 +131,7 @@ export default function App() {
             options={zoneOptions}
             value={zoneName}
             onChange={onSelectZone}
-            isDisabled={!world}
+            isDisabled={!world || detecting}
           />
           <div className="mt-2">
             <PortsEditor
