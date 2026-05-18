@@ -2,6 +2,12 @@ use serde::Serialize;
 
 pub type Point = [f32; 2];
 
+const BEIGE_R: f32 = 203.0;
+const BEIGE_G: f32 = 159.0;
+const BEIGE_B: f32 = 107.0;
+const BEIGE_DIST_THRESH: f32 = 62.0;
+const ANGLE_DEG: f32 = 35.1;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DetectResult {
     pub corners: Corners,
@@ -11,7 +17,6 @@ pub struct DetectResult {
     pub positive_line_count: usize,
     #[serde(rename = "negativeLineCount")]
     pub negative_line_count: usize,
-    #[serde(rename = "debug")]
     pub debug: DebugInfo,
 }
 
@@ -28,42 +33,23 @@ pub struct Corners {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct DiagLine {
-    pub x1: f32,
-    pub y1: f32,
-    pub x2: f32,
-    pub y2: f32,
-    pub dx: f32,
-    pub dy: f32,
-    pub length: f32,
-    pub angle: f32,
-    pub m: f32,
-    pub b: f32,
-    pub classification: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SideDebug {
-    pub target_intercept: f32,
-    pub tolerance: f32,
-    pub selected_count: usize,
-    pub line: [f32; 3],
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct DebugInfo {
     pub width: u32,
     pub height: u32,
     pub expected_rgba_len: usize,
     pub actual_rgba_len: usize,
-    pub total_raw_line_count: usize,
-    pub accepted_positive_line_count: usize,
-    pub accepted_negative_line_count: usize,
-    pub accepted_lines: Vec<DiagLine>,
-    pub top_right: Option<SideDebug>,
-    pub bottom_left: Option<SideDebug>,
-    pub top_left: Option<SideDebug>,
-    pub bottom_right: Option<SideDebug>,
+    pub beige_pixel_count: usize,
+    pub boundary_candidate_count: usize,
+    pub accepted_inner_edge_candidate_count: usize,
+    pub b_tr: Option<f32>,
+    pub b_bl: Option<f32>,
+    pub b_tl: Option<f32>,
+    pub b_br: Option<f32>,
+    pub peak_tr: usize,
+    pub peak_bl: usize,
+    pub peak_tl: usize,
+    pub peak_br: usize,
+    pub overlay_points: Vec<[f32; 2]>,
 }
 
 fn fallback_corners(width: u32, height: u32) -> Corners {
@@ -83,181 +69,208 @@ pub fn detect_map_bounds_rgba_native(width: u32, height: u32, rgba: &[u8]) -> Re
         .checked_mul(height as usize)
         .and_then(|v| v.checked_mul(4))
         .ok_or_else(|| format!("width/height overflow while computing expected RGBA length: {width}x{height}"))?;
-
     if rgba.len() != expected_len {
-        return Err(format!("invalid RGBA length {}, expected {} for {width}x{height} RGBA image", rgba.len(), expected_len));
+        return Err(format!(
+            "invalid RGBA length {}, expected {} for {width}x{height} RGBA image",
+            rgba.len(), expected_len
+        ));
     }
 
-    let gray = rgba_to_gray(width as usize, height as usize, rgba);
-    let edges = sobel_edges(width as usize, height as usize, &gray);
-    let min_dim = (width.min(height)) as f32;
-    let min_line_length = 160.0_f32.max((min_dim * 0.28).floor());
+    let w = width as usize;
+    let h = height as usize;
+    let m = ANGLE_DEG.to_radians().tan();
+    let center_x = (width as f32 - 1.0) * 0.5;
+    let center_y = (height as f32 - 1.0) * 0.5;
+    let center_b_pos = center_y - m * center_x;
+    let center_b_neg = center_y + m * center_x;
 
-    let (all_candidates, positive, negative) = collect_diagonal_segments(width as usize, height as usize, &edges, min_line_length);
+    let beige = build_beige_mask(w, h, rgba);
+    let beige_count = beige.iter().filter(|v| **v).count();
+    let boundary = build_boundary_candidates(w, h, &beige);
 
-    let mut debug = DebugInfo {
-        width,
-        height,
-        expected_rgba_len: expected_len,
-        actual_rgba_len: rgba.len(),
-        total_raw_line_count: all_candidates.len(),
-        accepted_positive_line_count: positive.len(),
-        accepted_negative_line_count: negative.len(),
-        accepted_lines: all_candidates,
-        top_right: None,
-        bottom_left: None,
-        top_left: None,
-        bottom_right: None,
-    };
+    let diag = ((w * w + h * h) as f32).sqrt().ceil() as i32;
+    let bins = (diag * 2 + 1) as usize;
+    let mut tr = vec![0usize; bins];
+    let mut bl = vec![0usize; bins];
+    let mut tl = vec![0usize; bins];
+    let mut br = vec![0usize; bins];
+
+    let mut boundary_count = 0usize;
+    let mut accepted_count = 0usize;
+    let mut pos_count = 0usize;
+    let mut neg_count = 0usize;
+    let mut overlay_points = Vec::new();
+
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            if !boundary[y * w + x] {
+                continue;
+            }
+            boundary_count += 1;
+            let xf = x as f32;
+            let yf = y as f32;
+
+            // positive family
+            let b_pos = yf - m * xf;
+            let pos_inward = if b_pos < center_b_pos { (-m, 1.0) } else { (m, -1.0) };
+            if is_inner_edge_candidate(w, h, &beige, xf, yf, pos_inward) {
+                let idx = ((b_pos.round() as i32) + diag).clamp(0, (bins - 1) as i32) as usize;
+                if b_pos < center_b_pos { tr[idx] += 1; } else { bl[idx] += 1; }
+                accepted_count += 1;
+                pos_count += 1;
+                if overlay_points.len() < 10000 { overlay_points.push([xf, yf]); }
+            }
+
+            // negative family
+            let b_neg = yf + m * xf;
+            let neg_inward = if b_neg < center_b_neg { (m, 1.0) } else { (-m, -1.0) };
+            if is_inner_edge_candidate(w, h, &beige, xf, yf, neg_inward) {
+                let idx = ((b_neg.round() as i32) + diag).clamp(0, (bins - 1) as i32) as usize;
+                if b_neg < center_b_neg { tl[idx] += 1; } else { br[idx] += 1; }
+                accepted_count += 1;
+                neg_count += 1;
+                if overlay_points.len() < 10000 { overlay_points.push([xf, yf]); }
+            }
+        }
+    }
+
+    let (b_tr, peak_tr) = pick_peak(&tr, 4);
+    let (b_bl, peak_bl) = pick_peak(&bl, 4);
+    let (b_tl, peak_tl) = pick_peak(&tl, 4);
+    let (b_br, peak_br) = pick_peak(&br, 4);
 
     let mut result = DetectResult {
         corners: fallback_corners(width, height),
         used_padding: false,
-        positive_line_count: positive.len(),
-        negative_line_count: negative.len(),
-        debug,
+        positive_line_count: pos_count,
+        negative_line_count: neg_count,
+        debug: DebugInfo {
+            width,
+            height,
+            expected_rgba_len: expected_len,
+            actual_rgba_len: rgba.len(),
+            beige_pixel_count: beige_count,
+            boundary_candidate_count: boundary_count,
+            accepted_inner_edge_candidate_count: accepted_count,
+            b_tr,
+            b_bl,
+            b_tl,
+            b_br,
+            peak_tr,
+            peak_bl,
+            peak_tl,
+            peak_br,
+            overlay_points,
+        },
     };
 
-    if positive.len() < 2 || negative.len() < 2 {
+    let min_votes = ((width.min(height) as f32) * 0.03).max(40.0) as usize;
+    if peak_tr < min_votes || peak_bl < min_votes || peak_tl < min_votes || peak_br < min_votes {
         return Ok(result);
     }
 
-    let (top_right, tr_dbg) = fit_extreme_side(&positive, true)?;
-    let (bottom_left, bl_dbg) = fit_extreme_side(&positive, false)?;
-    let (top_left, tl_dbg) = fit_extreme_side(&negative, true)?;
-    let (bottom_right, br_dbg) = fit_extreme_side(&negative, false)?;
-    result.debug.top_right = Some(tr_dbg);
-    result.debug.bottom_left = Some(bl_dbg);
-    result.debug.top_left = Some(tl_dbg);
-    result.debug.bottom_right = Some(br_dbg);
+    let b_tr = b_tr.ok_or("missing top-right intercept")?;
+    let b_bl = b_bl.ok_or("missing bottom-left intercept")?;
+    let b_tl = b_tl.ok_or("missing top-left intercept")?;
+    let b_br = b_br.ok_or("missing bottom-right intercept")?;
 
-    let top = intersect_lines(top_left, top_right)?;
-    let right = intersect_lines(top_right, bottom_right)?;
-    let bottom = intersect_lines(bottom_left, bottom_right)?;
-    let left = intersect_lines(top_left, bottom_left)?;
+    result.corners = Corners {
+        top: intersect_pm(m, b_tr, b_tl),
+        right: intersect_pm(m, b_tr, b_br),
+        bottom: intersect_pm(m, b_bl, b_br),
+        left: intersect_pm(m, b_bl, b_tl),
+    };
 
-    result.corners = Corners { top, right, bottom, left };
     Ok(result)
 }
 
-fn rgba_to_gray(width: usize, height: usize, rgba: &[u8]) -> Vec<u8> {
-    let mut out = vec![0u8; width * height];
-    for y in 0..height {
-        for x in 0..width {
-            let i = (y * width + x) * 4;
+fn build_beige_mask(w: usize, h: usize, rgba: &[u8]) -> Vec<bool> {
+    let mut out = vec![false; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) * 4;
             let r = rgba[i] as f32;
             let g = rgba[i + 1] as f32;
             let b = rgba[i + 2] as f32;
-            out[y * width + x] = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+            let dr = r - BEIGE_R;
+            let dg = g - BEIGE_G;
+            let db = b - BEIGE_B;
+            let dist = (dr * dr + dg * dg + db * db).sqrt();
+            let sand_rule = r > g
+                && g > b
+                && (120.0..=245.0).contains(&r)
+                && (90.0..=210.0).contains(&g)
+                && (50.0..=170.0).contains(&b)
+                && (r - g) >= 15.0
+                && (g - b) >= 15.0;
+            out[y * w + x] = dist <= BEIGE_DIST_THRESH || sand_rule;
         }
     }
     out
 }
 
-fn sobel_edges(width: usize, height: usize, gray: &[u8]) -> Vec<u8> {
-    if width < 3 || height < 3 { return vec![0; width * height]; }
-    let mut mag = vec![0u16; width * height];
-    let mut max_mag = 1u16;
-    for y in 1..height - 1 {
-        for x in 1..width - 1 {
-            let idx = |xx: usize, yy: usize| gray[yy * width + xx] as i32;
-            let gx = -idx(x - 1, y - 1) + idx(x + 1, y - 1) - 2 * idx(x - 1, y) + 2 * idx(x + 1, y)
-                - idx(x - 1, y + 1) + idx(x + 1, y + 1);
-            let gy = -idx(x - 1, y - 1) - 2 * idx(x, y - 1) - idx(x + 1, y - 1)
-                + idx(x - 1, y + 1) + 2 * idx(x, y + 1) + idx(x + 1, y + 1);
-            let m = ((gx * gx + gy * gy) as f32).sqrt() as u16;
-            mag[y * width + x] = m;
-            if m > max_mag { max_mag = m; }
+fn build_boundary_candidates(w: usize, h: usize, beige: &[bool]) -> Vec<bool> {
+    let mut out = vec![false; w * h];
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            let idx = y * w + x;
+            let center = beige[idx];
+            let mut has_flip = false;
+            for ny in (y - 1)..=(y + 1) {
+                for nx in (x - 1)..=(x + 1) {
+                    if nx == x && ny == y { continue; }
+                    if beige[ny * w + nx] != center { has_flip = true; break; }
+                }
+                if has_flip { break; }
+            }
+            out[idx] = has_flip;
         }
     }
-    let threshold = ((max_mag as f32) * 0.35).max(30.0) as u16;
-    mag.into_iter().map(|m| if m >= threshold { 255 } else { 0 }).collect()
+    out
 }
 
-fn normalize_angle(mut angle: f32) -> f32 {
-    if angle < -90.0 { angle += 180.0; }
-    if angle > 90.0 { angle -= 180.0; }
-    angle
-}
+fn is_inner_edge_candidate(w: usize, h: usize, beige: &[bool], x: f32, y: f32, inward: (f32, f32)) -> bool {
+    let n = (inward.0 * inward.0 + inward.1 * inward.1).sqrt();
+    if n <= 1e-6 { return false; }
+    let nx = inward.0 / n;
+    let ny = inward.1 / n;
 
-fn collect_diagonal_segments(width: usize, height: usize, edges: &[u8], min_line_length: f32) -> (Vec<DiagLine>, Vec<DiagLine>, Vec<DiagLine>) {
-    let mut points = Vec::new();
-    for y in 0..height { for x in 0..width { if edges[y*width+x] != 0 { points.push((x as f32, y as f32)); } } }
-
-    let mut all = Vec::new();
-    let mut pos = Vec::new();
-    let mut neg = Vec::new();
-    let n = points.len();
-    if n < 2 { return (all, pos, neg); }
-
-    let step = (n / 500).max(1);
-    for i in (0..n).step_by(step) {
-        let (x1, y1) = points[i];
-        for j in ((i + step)..n).step_by(step * 3) {
-            let (x2, y2) = points[j];
-            let dx = x2 - x1;
-            if dx.abs() < 1e-6 { continue; }
-            let dy = y2 - y1;
-            let length = (dx * dx + dy * dy).sqrt();
-            if length < min_line_length { continue; }
-            let angle = normalize_angle(dy.atan2(dx).to_degrees());
-            if !(28.0..=42.0).contains(&angle.abs()) { continue; }
-            let m = dy / dx;
-            let b = y1 - m * x1;
-            let classification = if m > 0.0 { "positive" } else { "negative" }.to_string();
-            let line = DiagLine { x1, y1, x2, y2, dx, dy, length, angle, m, b, classification: classification.clone() };
-            all.push(line.clone());
-            if m > 0.0 { pos.push(line); } else { neg.push(line); }
-            if all.len() > 3000 { break; }
+    let mut inward_non_beige = 0;
+    let mut outward_beige = 0;
+    for d in [4.0_f32, 6.0, 8.0] {
+        let ix = (x + nx * d).round() as i32;
+        let iy = (y + ny * d).round() as i32;
+        let ox = (x - nx * d).round() as i32;
+        let oy = (y - ny * d).round() as i32;
+        if ix >= 0 && iy >= 0 && (ix as usize) < w && (iy as usize) < h {
+            if !beige[iy as usize * w + ix as usize] { inward_non_beige += 1; }
         }
-        if all.len() > 3000 { break; }
+        if ox >= 0 && oy >= 0 && (ox as usize) < w && (oy as usize) < h {
+            if beige[oy as usize * w + ox as usize] { outward_beige += 1; }
+        }
     }
-
-    (all, pos, neg)
+    inward_non_beige >= 2 && outward_beige >= 2
 }
 
-fn line_from_points(points: &[(f32, f32)]) -> Result<[f32;3], String> {
-    if points.len() < 2 { return Err("Need at least two points to fit a line".into()); }
-    let mut mx=0.0; let mut my=0.0;
-    for (x,y) in points { mx += *x; my += *y; }
-    mx /= points.len() as f32; my /= points.len() as f32;
-    let mut sxx=0.0; let mut sxy=0.0; let mut syy=0.0;
-    for (x,y) in points { let dx=*x-mx; let dy=*y-my; sxx += dx*dx; sxy += dx*dy; syy += dy*dy; }
-    let theta = 0.5 * (2.0*sxy).atan2(sxx - syy);
-    let vx = theta.cos(); let vy = theta.sin();
-    let mut a = vy; let mut b = -vx; let mut c = vx*my - vy*mx;
-    let n = (a*a+b*b).sqrt();
-    if n <= 1e-9 { return Err("Degenerate line fit".into()); }
-    a/=n; b/=n; c/=n;
-    Ok([a,b,c])
-}
-
-fn fit_extreme_side(lines: &[DiagLine], use_min: bool) -> Result<([f32;3], SideDebug), String> {
-    if lines.is_empty() { return Err("No candidate lines".into()); }
-    let mut min_b = f32::INFINITY;
-    let mut max_b = f32::NEG_INFINITY;
-    for l in lines { min_b = min_b.min(l.b); max_b = max_b.max(l.b); }
-    let target = if use_min { min_b } else { max_b };
-    let spread = 1.0_f32.max(max_b - min_b);
-    let tol = 18.0_f32.max(32.0_f32.min(spread * 0.035));
-    let mut selected: Vec<&DiagLine> = lines.iter().filter(|l| (l.b - target).abs() <= tol).collect();
-    if selected.is_empty() {
-        let mut sorted: Vec<&DiagLine> = lines.iter().collect();
-        sorted.sort_by(|a,b| (a.b-target).abs().total_cmp(&(b.b-target).abs()));
-        selected = sorted.into_iter().take(2).collect();
+fn pick_peak(hist: &[usize], smooth_radius: usize) -> (Option<f32>, usize) {
+    if hist.is_empty() { return (None, 0); }
+    let mut best_i = 0usize;
+    let mut best_v = 0usize;
+    for i in 0..hist.len() {
+        let s = i.saturating_sub(smooth_radius);
+        let e = (i + smooth_radius).min(hist.len() - 1);
+        let mut v = 0usize;
+        for j in s..=e { v += hist[j]; }
+        if v > best_v {
+            best_v = v;
+            best_i = i;
+        }
     }
-    let mut pts = Vec::new();
-    for l in &selected { pts.push((l.x1,l.y1)); pts.push((l.x2,l.y2)); }
-    let line = line_from_points(&pts)?;
-    Ok((line, SideDebug { target_intercept: target, tolerance: tol, selected_count: selected.len(), line }))
+    (Some(best_i as f32 - ((hist.len() as f32 - 1.0) * 0.5)), best_v)
 }
 
-fn intersect_lines(l1:[f32;3], l2:[f32;3]) -> Result<Point,String> {
-    let (a1,b1,c1)=(l1[0],l1[1],l1[2]);
-    let (a2,b2,c2)=(l2[0],l2[1],l2[2]);
-    let d = a1*b2-a2*b1;
-    if d.abs() <= 1e-9 { return Err("Parallel lines cannot be intersected".into()); }
-    let x = (b1*c2-b2*c1)/d;
-    let y = (c1*a2-c2*a1)/d;
-    Ok([x,y])
+fn intersect_pm(m: f32, b_pos: f32, b_neg: f32) -> Point {
+    let x = (b_neg - b_pos) / (2.0 * m);
+    let y = (b_pos + b_neg) * 0.5;
+    [x, y]
 }
