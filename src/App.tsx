@@ -43,6 +43,7 @@ export default function App() {
   const [addName, setAddName] = useState("");
   const [addError, setAddError] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [viewerResetKey, setViewerResetKey] = useState(0);
 
   const zones = world?.zones ?? [];
   const zoneById = useMemo(
@@ -88,13 +89,18 @@ export default function App() {
     }
   };
 
-  const selectZoneById = (nextZoneId: string, nextWorld?: WorldJson | null) => {
+  const selectZoneById = (
+    nextZoneId: string,
+    nextWorld?: WorldJson | null,
+    options?: { resetViewer?: boolean },
+  ) => {
     const activeWorld = nextWorld ?? world;
     if (!activeWorld) return;
     const selectedZone = activeWorld.zones.find((z) => String(z.id ?? "") === nextZoneId);
     setZoneId(nextZoneId);
     setRows(portsToRows(selectedZone));
     setSelecting(null);
+    if (options?.resetViewer) setViewerResetKey((k) => k + 1);
   };
 
   useEffect(() => {
@@ -169,7 +175,7 @@ export default function App() {
     };
     const nextWorld = { ...world, zones: [...world.zones, newZone] };
     persistWorld(nextWorld);
-    selectZoneById(id, nextWorld);
+    selectZoneById(id, nextWorld, { resetViewer: true });
     setAddOpen(false);
     setAddName("");
     setAddError("");
@@ -187,7 +193,7 @@ export default function App() {
       .filter(Boolean)
       .sort()[0];
     if (fallbackId) {
-      selectZoneById(fallbackId, nextWorld);
+      selectZoneById(fallbackId, nextWorld, { resetViewer: true });
     } else {
       setZoneId("");
       setRows([]);
@@ -223,6 +229,7 @@ export default function App() {
           const img = new Image();
           img.onload = async () => {
             setImage(img);
+            setViewerResetKey((k) => k + 1);
             setDetecting(true);
             setStatus("Detecting map bounds...");
             try {
@@ -263,7 +270,7 @@ export default function App() {
           <SearchableDropdown
             options={zoneOptions}
             value={zoneId}
-            onChange={(id) => selectZoneById(id)}
+            onChange={(id) => selectZoneById(id, undefined, { resetViewer: true })}
             isDisabled={!world || detecting}
             placeholder="Select..."
           />
@@ -301,7 +308,7 @@ export default function App() {
             imageUrl={image?.src ?? null}
             imageWidth={image?.width}
             imageHeight={image?.height}
-            resetKey={image?.src}
+            resetKey={image ? `${image.src}:${viewerResetKey}` : null}
             onImageClick={({ x, y }) => {
               if (selecting === null || !affine) return;
               const [u, v] = applyAffine(affine.inv, x, y);
