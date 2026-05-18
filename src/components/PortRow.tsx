@@ -1,4 +1,3 @@
-import { DEFAULT_PORT_NAMES } from "../lib/worldJson";
 import SearchableDropdown, { Option } from "./SearchableDropdown";
 
 export type PortRowState = {
@@ -29,10 +28,7 @@ export default function PortRow({
   onRemove: (index: number) => void;
   onToggle: (index: number) => void;
 }) {
-  const allPorts = [...new Set([...portOptions, ...DEFAULT_PORT_NAMES])].map((v) => ({
-    value: v,
-    label: v,
-  }));
+  const portOptionItems = portOptions.map((v) => ({ value: v, label: v }));
 
   return (
     <div className="card p-2 mb-2">
@@ -86,7 +82,7 @@ export default function PortRow({
         <div className="col-md-4">
           <label className="form-label small">Port</label>
           <SearchableDropdown
-            options={allPorts}
+            options={portOptionItems}
             value={row.port}
             onChange={(v) => onChange(index, { ...row, port: v.toUpperCase() })}
           />
