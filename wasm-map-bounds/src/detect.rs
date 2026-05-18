@@ -58,8 +58,13 @@ pub fn detect_map_bounds_rgba_native(width: u32, height: u32, rgba: &[u8]) -> Re
     if width == 0 || height == 0 {
         return Err("width/height must be > 0".into());
     }
-    if rgba.len() != (width as usize) * (height as usize) * 4 {
-        return Err(format!("invalid RGBA length {}, expected {}", rgba.len(), (width as usize) * (height as usize) * 4));
+    let expected_len = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|v| v.checked_mul(4))
+        .ok_or_else(|| format!("width/height overflow while computing expected RGBA length: {width}x{height}"))?;
+
+    if rgba.len() != expected_len {
+        return Err(format!("invalid RGBA length {}, expected {} for {width}x{height} RGBA image", rgba.len(), expected_len));
     }
 
     let total_start = Instant::now();
@@ -86,10 +91,11 @@ pub fn detect_map_bounds_rgba_native(width: u32, height: u32, rgba: &[u8]) -> Re
     };
 
     if pos.len() >= 2 && neg.len() >= 2 {
-        let tr = pos.iter().min_by(|a, b| a.rho.partial_cmp(&b.rho).unwrap()).unwrap();
-        let bl = pos.iter().max_by(|a, b| a.rho.partial_cmp(&b.rho).unwrap()).unwrap();
-        let tl = neg.iter().min_by(|a, b| a.rho.partial_cmp(&b.rho).unwrap()).unwrap();
-        let br = neg.iter().max_by(|a, b| a.rho.partial_cmp(&b.rho).unwrap()).unwrap();
+        let cmp_rho = |a: &PolarLine, b: &PolarLine| a.rho.total_cmp(&b.rho);
+        let tr = pos.iter().min_by(|a, b| cmp_rho(a, b)).ok_or("failed to select top-right line")?;
+        let bl = pos.iter().max_by(|a, b| cmp_rho(a, b)).ok_or("failed to select bottom-left line")?;
+        let tl = neg.iter().min_by(|a, b| cmp_rho(a, b)).ok_or("failed to select top-left line")?;
+        let br = neg.iter().max_by(|a, b| cmp_rho(a, b)).ok_or("failed to select bottom-right line")?;
 
         let top = intersect_polar(tl, tr);
         let right = intersect_polar(tr, br);
