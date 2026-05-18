@@ -1,7 +1,5 @@
 import { WorldJson } from "./types";
 
-export const DEFAULT_PORT_NAMES = ["NW", "NE", "SE", "SW", "NW2", "NE2", "SE2", "SW2"];
-
 export const WORLD_STORAGE_KEY = "albion-zone-builder:world";
 
 export function isValidWorldJson(data: unknown): data is WorldJson {
