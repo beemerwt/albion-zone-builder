@@ -43,6 +43,10 @@ export default function Toolbar({
       >
         Delete Zone
       </button>
+      <button className="btn btn-primary btn-sm" onClick={onExport} disabled={!canEditWorld}>
+        Export JSON
+      </button>
+      <span className="small text-muted flex-grow-1">{status}</span>
       <button
         className="btn btn-outline-warning btn-sm"
         onClick={onClearCache}
@@ -50,10 +54,6 @@ export default function Toolbar({
       >
         Clear Cache
       </button>
-      <button className="btn btn-primary btn-sm" onClick={onExport} disabled={!canEditWorld}>
-        Export JSON
-      </button>
-      <span className="small text-muted">{status}</span>
     </div>
   );
 }

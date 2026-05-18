@@ -250,7 +250,7 @@ export default function App() {
       />
 
       <div className="flex-grow-1 d-flex overflow-hidden">
-        <div className="border-end p-2" style={{ overflow: "auto", minWidth: 0 }}>
+        <div className="border-end p-2" style={{ overflow: "auto", minWidth: 421 }}>
           <label className="form-label small">Zone</label>
           <SearchableDropdown
             options={zoneOptions}
