@@ -7,11 +7,13 @@ export default function SearchableDropdown({
   value,
   onChange,
   isDisabled = false,
+  placeholder = "Select...",
 }: {
   options: Option[];
   value: string;
   onChange: (value: string) => void;
   isDisabled?: boolean;
+  placeholder?: string;
 }) {
   return (
     <Select
@@ -22,6 +24,7 @@ export default function SearchableDropdown({
       isSearchable
       isClearable
       isDisabled={isDisabled}
+      placeholder={placeholder}
     />
   );
 }
