@@ -1,13 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import MapCanvas from "./components/MapCanvas";
 import PortsEditor from "./components/PortsEditor";
 import SearchableDropdown from "./components/SearchableDropdown";
 import Toolbar from "./components/Toolbar";
 import { applyAffine, clamp01, computeAffine, fallbackCorners } from "./lib/affine";
 import { detectMapBoundsWithOpenCv } from "./lib/mapBounds";
-import { detectMapBoundsWithWasm } from "./lib/wasmMapBounds";
 import { PortData, WorldJson, Zone } from "./lib/types";
-import { downloadJson, parseWorldFile } from "./lib/worldJson";
+import {
+  downloadJson,
+  fetchServerWorld,
+  loadWorldFromLocalStorage,
+  normalizeZoneName,
+  saveWorldToLocalStorage,
+  zoneIdFromName,
+} from "./lib/worldJson";
+import { detectMapBoundsWithWasm } from "./lib/wasmMapBounds";
 import { PortRowState } from "./components/PortRow";
 
 function portsToRows(zone?: Zone): PortRowState[] {
@@ -23,30 +30,103 @@ function portsToRows(zone?: Zone): PortRowState[] {
 
 export default function App() {
   const [world, setWorld] = useState<WorldJson | null>(null);
-  const [zoneName, setZoneName] = useState("");
+  const [zoneId, setZoneId] = useState("");
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [corners, setCorners] = useState<Record<string, [number, number]> | null>(null);
   const [affine, setAffine] = useState<any>(null);
   const [rows, setRows] = useState<PortRowState[]>([]);
   const [selecting, setSelecting] = useState<number | null>(null);
-  const [status, setStatus] = useState("Open world.json and screenshot.");
+  const [status, setStatus] = useState("Loading world.json...");
   const [detecting, setDetecting] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addError, setAddError] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const zones = world?.zones ?? [];
-  const zoneByName = useMemo(
-    () => Object.fromEntries(zones.map((z) => [String(z.name ?? z.id ?? ""), z])),
+  const zoneById = useMemo(
+    () => Object.fromEntries(zones.map((z) => [String(z.id ?? ""), z]).filter(([id]) => id)),
     [zones],
   );
-  const zone = zoneByName[zoneName] as Zone | undefined;
+  const zoneNameSet = useMemo(
+    () =>
+      new Set(
+        zones
+          .map((z) =>
+            String(z.name ?? "")
+              .trim()
+              .toLowerCase(),
+          )
+          .filter(Boolean),
+      ),
+    [zones],
+  );
+  const zone = zoneById[zoneId] as Zone | undefined;
 
-  const zoneOptions = Object.keys(zoneByName)
-    .sort()
-    .map((v) => ({ value: v, label: v }));
+  const zoneOptions = zones
+    .map((z) => ({ value: String(z.id ?? ""), label: String(z.name ?? z.id ?? "") }))
+    .filter((z) => z.value)
+    .sort((a, b) => a.label.localeCompare(b.label));
   const zoneIdOptions = zones
     .map((z) => String(z.id ?? ""))
     .filter(Boolean)
     .sort()
     .map((v) => ({ value: v, label: v }));
+
+  const persistWorld = (next: WorldJson) => {
+    setWorld(next);
+    if (!saveWorldToLocalStorage(next)) {
+      setStatus("Warning: could not save world changes to localStorage.");
+    }
+  };
+
+  const selectZoneById = (nextZoneId: string, nextWorld?: WorldJson | null) => {
+    const activeWorld = nextWorld ?? world;
+    if (!activeWorld) return;
+    const selectedZone = activeWorld.zones.find((z) => String(z.id ?? "") === nextZoneId);
+    setZoneId(nextZoneId);
+    setRows(portsToRows(selectedZone));
+    setSelecting(null);
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    const loadWorld = async () => {
+      const cached = loadWorldFromLocalStorage();
+      if (cached) {
+        if (!mounted) return;
+        setWorld(cached);
+        const firstId = cached.zones
+          .map((z) => String(z.id ?? ""))
+          .filter(Boolean)
+          .sort()[0];
+        if (firstId) selectZoneById(firstId, cached);
+        setStatus(`Loaded ${cached.zones.length} zones from local cache.`);
+        return;
+      }
+
+      try {
+        const serverWorld = await fetchServerWorld();
+        if (!mounted) return;
+        persistWorld(serverWorld);
+        const firstId = serverWorld.zones
+          .map((z) => String(z.id ?? ""))
+          .filter(Boolean)
+          .sort()[0];
+        if (firstId) selectZoneById(firstId, serverWorld);
+        setStatus(`Loaded ${serverWorld.zones.length} zones from /world.json.`);
+      } catch (error) {
+        console.error(error);
+        if (!mounted) return;
+        setStatus("Failed to load world data from local cache or /world.json.");
+      }
+    };
+
+    loadWorld();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const syncZone = (nextRows: PortRowState[]) => {
     if (!world || !zone) return;
@@ -61,30 +141,68 @@ export default function App() {
       };
     }
     const nextZones = world.zones.map((z) => (z === zone ? { ...z, ports } : z));
-    setWorld({ ...world, zones: nextZones });
+    persistWorld({ ...world, zones: nextZones });
   };
 
-  const onSelectZone = (name: string) => {
-    setZoneName(name);
-    setRows(portsToRows(zoneByName[name] as Zone));
-    setSelecting(null);
+  const onAddZoneSubmit = () => {
+    const displayName = normalizeZoneName(addName);
+    const id = zoneIdFromName(addName);
+    if (!displayName || !id) {
+      setAddError("No zone name was provided.");
+      return;
+    }
+    if (zoneById[id] || zoneNameSet.has(displayName.toLowerCase())) {
+      setAddError("Zone already exists");
+      return;
+    }
+    if (!world) return;
+
+    const newZone: Zone = {
+      id,
+      name: displayName,
+      type: "unknown",
+      biome: "unknown",
+      tier: 1,
+      ports: {},
+    };
+    const nextWorld = { ...world, zones: [...world.zones, newZone] };
+    persistWorld(nextWorld);
+    selectZoneById(id, nextWorld);
+    setAddOpen(false);
+    setAddName("");
+    setAddError("");
+    setStatus(`Added zone ${displayName}.`);
+  };
+
+  const onDeleteZone = () => {
+    if (!world || !zoneId) return;
+    const nextZones = world.zones.filter((z) => String(z.id ?? "") !== zoneId);
+    // TODO: Deleting a zone can leave dangling connectsTo.zoneId references in other zones.
+    const nextWorld = { ...world, zones: nextZones };
+    persistWorld(nextWorld);
+    const fallbackId = nextZones
+      .map((z) => String(z.id ?? ""))
+      .filter(Boolean)
+      .sort()[0];
+    if (fallbackId) {
+      selectZoneById(fallbackId, nextWorld);
+    } else {
+      setZoneId("");
+      setRows([]);
+      setSelecting(null);
+    }
+    setDeleteOpen(false);
+    setStatus("Deleted selected zone.");
   };
 
   return (
     <div className="vh-100 d-flex flex-column">
       <Toolbar
         status={status}
-        onWorld={async (file) => {
-          const parsed = await parseWorldFile(file);
-          setWorld(parsed);
-          const first =
-            parsed.zones
-              .map((z) => String(z.name ?? z.id ?? ""))
-              .filter(Boolean)
-              .sort()[0] ?? "";
-          if (first) onSelectZone(first);
-          setStatus(`Loaded ${parsed.zones.length} zones.`);
-        }}
+        canEditWorld={Boolean(world)}
+        canDeleteZone={Boolean(world && zoneId)}
+        onOpenAddZone={() => setAddOpen(true)}
+        onOpenDeleteZone={() => setDeleteOpen(true)}
         onImage={(file) => {
           const url = URL.createObjectURL(file);
           const img = new Image();
@@ -129,8 +247,8 @@ export default function App() {
           <label className="form-label small">Zone</label>
           <SearchableDropdown
             options={zoneOptions}
-            value={zoneName}
-            onChange={onSelectZone}
+            value={zoneId}
+            onChange={(id) => selectZoneById(id)}
             isDisabled={!world || detecting}
           />
           <div className="mt-2">
@@ -180,6 +298,78 @@ export default function App() {
           />
         </div>
       </div>
+
+      {addOpen && (
+        <div
+          className="modal d-block"
+          tabIndex={-1}
+          onKeyDown={(e) => e.key === "Escape" && setAddOpen(false)}
+        >
+          <div className="modal-dialog">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Add Zone</h5>
+              </div>
+              <div className="modal-body">
+                <input
+                  autoFocus
+                  className={`form-control ${addError ? "is-invalid" : ""}`}
+                  value={addName}
+                  onChange={(e) => {
+                    setAddName(e.target.value);
+                    setAddError("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") onAddZoneSubmit();
+                    if (e.key === "Escape") {
+                      setAddOpen(false);
+                      setAddName("");
+                      setAddError("");
+                    }
+                  }}
+                  placeholder="Zone name"
+                />
+                {addError && <div className="text-danger small mt-1">{addError}</div>}
+              </div>
+              <div className="modal-footer">
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setAddOpen(false);
+                    setAddName("");
+                    setAddError("");
+                  }}
+                >
+                  Cancel
+                </button>
+                <button className="btn btn-primary" onClick={onAddZoneSubmit}>
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteOpen && (
+        <div className="modal d-block" tabIndex={-1}>
+          <div className="modal-dialog">
+            <div className="modal-content">
+              <div className="modal-body">
+                Are you sure you want to delete {zone?.name ?? zoneId}
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setDeleteOpen(false)}>
+                  No
+                </button>
+                <button className="btn btn-danger" onClick={onDeleteZone}>
+                  Yes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

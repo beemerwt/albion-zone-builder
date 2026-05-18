@@ -14,6 +14,7 @@ export type Zone = {
 } & Record<string, unknown>;
 
 export type WorldJson = {
+  schemaVersion: number;
   zones: Zone[];
 } & Record<string, unknown>;
 
