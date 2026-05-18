@@ -7,6 +7,8 @@ const BEIGE_G: f32 = 159.0;
 const BEIGE_B: f32 = 107.0;
 const BEIGE_DIST_THRESH: f32 = 62.0;
 const ANGLE_DEG: f32 = 35.1;
+const MIN_CENTER_DISTANCE_FRAC: f32 = 0.18;
+const MIN_SUPPORT_SPAN_FRAC: f32 = 0.35;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DetectResult {
@@ -41,6 +43,14 @@ pub struct DebugInfo {
     pub beige_pixel_count: usize,
     pub boundary_candidate_count: usize,
     pub accepted_inner_edge_candidate_count: usize,
+    pub rejected_outward_not_beige: usize,
+    pub rejected_inward_too_beige: usize,
+    pub rejected_too_close_to_center: usize,
+    pub rejected_support_too_short: usize,
+    pub side_candidate_tr: usize,
+    pub side_candidate_bl: usize,
+    pub side_candidate_tl: usize,
+    pub side_candidate_br: usize,
     pub b_tr: Option<f32>,
     pub b_bl: Option<f32>,
     pub b_tl: Option<f32>,
@@ -49,6 +59,11 @@ pub struct DebugInfo {
     pub peak_bl: usize,
     pub peak_tl: usize,
     pub peak_br: usize,
+    pub span_tr: f32,
+    pub span_bl: f32,
+    pub span_tl: f32,
+    pub span_br: f32,
+    pub final_corners: Option<Corners>,
     pub overlay_points: Vec<[f32; 2]>,
 }
 
@@ -94,12 +109,20 @@ pub fn detect_map_bounds_rgba_native(width: u32, height: u32, rgba: &[u8]) -> Re
     let mut bl = vec![0usize; bins];
     let mut tl = vec![0usize; bins];
     let mut br = vec![0usize; bins];
+    let mut tr_pts: Vec<(f32, f32)> = Vec::new();
+    let mut bl_pts: Vec<(f32, f32)> = Vec::new();
+    let mut tl_pts: Vec<(f32, f32)> = Vec::new();
+    let mut br_pts: Vec<(f32, f32)> = Vec::new();
 
     let mut boundary_count = 0usize;
     let mut accepted_count = 0usize;
     let mut pos_count = 0usize;
     let mut neg_count = 0usize;
     let mut overlay_points = Vec::new();
+    let mut rejected_outward_not_beige = 0usize;
+    let mut rejected_inward_too_beige = 0usize;
+    let mut rejected_too_close_to_center = 0usize;
+    let min_center_distance = (width.min(height) as f32) * MIN_CENTER_DISTANCE_FRAC;
 
     for y in 1..h - 1 {
         for x in 1..w - 1 {
@@ -112,32 +135,66 @@ pub fn detect_map_bounds_rgba_native(width: u32, height: u32, rgba: &[u8]) -> Re
 
             // positive family
             let b_pos = yf - m * xf;
-            let pos_inward = if b_pos < center_b_pos { (-m, 1.0) } else { (m, -1.0) };
-            if is_inner_edge_candidate(w, h, &beige, xf, yf, pos_inward) {
+            let center_dist_pos = (b_pos - center_b_pos).abs();
+            if center_dist_pos < min_center_distance {
+                rejected_too_close_to_center += 1;
+            } else if let Some((outward_beige, inward_beige)) = parchment_transition_score(
+                w, h, &beige, xf, yf, outward_normal_for_pos(m, b_pos, center_b_pos)
+            ) {
+                if outward_beige < 3 {
+                    rejected_outward_not_beige += 1;
+                } else if inward_beige >= 2 || outward_beige <= inward_beige {
+                    rejected_inward_too_beige += 1;
+                } else {
                 let idx = ((b_pos.round() as i32) + diag).clamp(0, (bins - 1) as i32) as usize;
-                if b_pos < center_b_pos { tr[idx] += 1; } else { bl[idx] += 1; }
+                    if b_pos < center_b_pos {
+                        tr[idx] += 1;
+                        tr_pts.push((xf, yf));
+                    } else {
+                        bl[idx] += 1;
+                        bl_pts.push((xf, yf));
+                    }
                 accepted_count += 1;
                 pos_count += 1;
                 if overlay_points.len() < 10000 { overlay_points.push([xf, yf]); }
             }
+            }
 
             // negative family
             let b_neg = yf + m * xf;
-            let neg_inward = if b_neg < center_b_neg { (m, 1.0) } else { (-m, -1.0) };
-            if is_inner_edge_candidate(w, h, &beige, xf, yf, neg_inward) {
+            let center_dist_neg = (b_neg - center_b_neg).abs();
+            if center_dist_neg < min_center_distance {
+                rejected_too_close_to_center += 1;
+            } else if let Some((outward_beige, inward_beige)) = parchment_transition_score(
+                w, h, &beige, xf, yf, outward_normal_for_neg(m, b_neg, center_b_neg)
+            ) {
+                if outward_beige < 3 {
+                    rejected_outward_not_beige += 1;
+                } else if inward_beige >= 2 || outward_beige <= inward_beige {
+                    rejected_inward_too_beige += 1;
+                } else {
                 let idx = ((b_neg.round() as i32) + diag).clamp(0, (bins - 1) as i32) as usize;
-                if b_neg < center_b_neg { tl[idx] += 1; } else { br[idx] += 1; }
+                    if b_neg < center_b_neg {
+                        tl[idx] += 1;
+                        tl_pts.push((xf, yf));
+                    } else {
+                        br[idx] += 1;
+                        br_pts.push((xf, yf));
+                    }
                 accepted_count += 1;
                 neg_count += 1;
                 if overlay_points.len() < 10000 { overlay_points.push([xf, yf]); }
             }
+            }
         }
     }
 
-    let (b_tr, peak_tr) = pick_peak(&tr, 4);
-    let (b_bl, peak_bl) = pick_peak(&bl, 4);
-    let (b_tl, peak_tl) = pick_peak(&tl, 4);
-    let (b_br, peak_br) = pick_peak(&br, 4);
+    let min_support_span = (width.min(height) as f32) * MIN_SUPPORT_SPAN_FRAC;
+    let (b_tr, peak_tr, span_tr) = pick_side_peak(&tr, &tr_pts, m, true, center_b_pos, min_support_span, diag, 4);
+    let (b_bl, peak_bl, span_bl) = pick_side_peak(&bl, &bl_pts, m, true, center_b_pos, min_support_span, diag, 4);
+    let (b_tl, peak_tl, span_tl) = pick_side_peak(&tl, &tl_pts, m, false, center_b_neg, min_support_span, diag, 4);
+    let (b_br, peak_br, span_br) = pick_side_peak(&br, &br_pts, m, false, center_b_neg, min_support_span, diag, 4);
+    let rejected_support_too_short = usize::from(b_tr.is_none()) + usize::from(b_bl.is_none()) + usize::from(b_tl.is_none()) + usize::from(b_br.is_none());
 
     let mut result = DetectResult {
         corners: fallback_corners(width, height),
@@ -152,6 +209,14 @@ pub fn detect_map_bounds_rgba_native(width: u32, height: u32, rgba: &[u8]) -> Re
             beige_pixel_count: beige_count,
             boundary_candidate_count: boundary_count,
             accepted_inner_edge_candidate_count: accepted_count,
+            rejected_outward_not_beige,
+            rejected_inward_too_beige,
+            rejected_too_close_to_center,
+            rejected_support_too_short,
+            side_candidate_tr: tr_pts.len(),
+            side_candidate_bl: bl_pts.len(),
+            side_candidate_tl: tl_pts.len(),
+            side_candidate_br: br_pts.len(),
             b_tr,
             b_bl,
             b_tl,
@@ -160,6 +225,11 @@ pub fn detect_map_bounds_rgba_native(width: u32, height: u32, rgba: &[u8]) -> Re
             peak_bl,
             peak_tl,
             peak_br,
+            span_tr,
+            span_bl,
+            span_tl,
+            span_br,
+            final_corners: None,
             overlay_points,
         },
     };
@@ -180,6 +250,7 @@ pub fn detect_map_bounds_rgba_native(width: u32, height: u32, rgba: &[u8]) -> Re
         bottom: intersect_pm(m, b_bl, b_br),
         left: intersect_pm(m, b_bl, b_tl),
     };
+    result.debug.final_corners = Some(result.corners.clone());
 
     Ok(result)
 }
@@ -229,44 +300,74 @@ fn build_boundary_candidates(w: usize, h: usize, beige: &[bool]) -> Vec<bool> {
     out
 }
 
-fn is_inner_edge_candidate(w: usize, h: usize, beige: &[bool], x: f32, y: f32, inward: (f32, f32)) -> bool {
-    let n = (inward.0 * inward.0 + inward.1 * inward.1).sqrt();
-    if n <= 1e-6 { return false; }
-    let nx = inward.0 / n;
-    let ny = inward.1 / n;
-
-    let mut inward_non_beige = 0;
-    let mut outward_beige = 0;
-    for d in [4.0_f32, 6.0, 8.0] {
-        let ix = (x + nx * d).round() as i32;
-        let iy = (y + ny * d).round() as i32;
-        let ox = (x - nx * d).round() as i32;
-        let oy = (y - ny * d).round() as i32;
-        if ix >= 0 && iy >= 0 && (ix as usize) < w && (iy as usize) < h {
-            if !beige[iy as usize * w + ix as usize] { inward_non_beige += 1; }
-        }
-        if ox >= 0 && oy >= 0 && (ox as usize) < w && (oy as usize) < h {
-            if beige[oy as usize * w + ox as usize] { outward_beige += 1; }
+fn outward_normal_for_pos(m: f32, b: f32, center_b: f32) -> (f32, f32) {
+    if b < center_b { (-m, 1.0) } else { (m, -1.0) }
+}
+fn outward_normal_for_neg(m: f32, b: f32, center_b: f32) -> (f32, f32) {
+    if b < center_b { (m, 1.0) } else { (-m, -1.0) }
+}
+fn parchment_transition_score(w: usize, h: usize, beige: &[bool], x: f32, y: f32, outward: (f32, f32)) -> Option<(usize, usize)> {
+    let n = (outward.0 * outward.0 + outward.1 * outward.1).sqrt();
+    if n <= 1e-6 { return None; }
+    let nx = outward.0 / n;
+    let ny = outward.1 / n;
+    let mut out_beige = 0usize;
+    let mut in_beige = 0usize;
+    let mut samples = 0usize;
+    for d in [4.0_f32, 8.0, 12.0, 16.0, 24.0] {
+        let ox = (x + nx * d).round() as i32;
+        let oy = (y + ny * d).round() as i32;
+        let ix = (x - nx * d).round() as i32;
+        let iy = (y - ny * d).round() as i32;
+        if ox >= 0 && oy >= 0 && ix >= 0 && iy >= 0 && (ox as usize) < w && (oy as usize) < h && (ix as usize) < w && (iy as usize) < h {
+            samples += 1;
+            if beige[oy as usize * w + ox as usize] { out_beige += 1; }
+            if beige[iy as usize * w + ix as usize] { in_beige += 1; }
         }
     }
-    inward_non_beige >= 2 && outward_beige >= 2
+    if samples < 3 { None } else { Some((out_beige, in_beige)) }
 }
 
-fn pick_peak(hist: &[usize], smooth_radius: usize) -> (Option<f32>, usize) {
-    if hist.is_empty() { return (None, 0); }
-    let mut best_i = 0usize;
-    let mut best_v = 0usize;
+fn pick_side_peak(hist: &[usize], pts: &[(f32, f32)], m: f32, is_positive: bool, center_b: f32, min_span: f32, diag: i32, smooth_radius: usize) -> (Option<f32>, usize, f32) {
+    if hist.is_empty() { return (None, 0, 0.0); }
+    let mut best_b = None;
+    let mut best_votes = 0usize;
+    let mut best_span = 0.0_f32;
+    let mut best_score = 0.0_f32;
     for i in 0..hist.len() {
         let s = i.saturating_sub(smooth_radius);
         let e = (i + smooth_radius).min(hist.len() - 1);
-        let mut v = 0usize;
-        for j in s..=e { v += hist[j]; }
-        if v > best_v {
-            best_v = v;
-            best_i = i;
+        let mut votes = 0usize;
+        for j in s..=e { votes += hist[j]; }
+        if votes == 0 { continue; }
+        let b = i as f32 - diag as f32;
+        let span = support_span(pts, m, is_positive, b);
+        if span < min_span { continue; }
+        let support_quality = (span / min_span).min(2.0);
+        let outerness_bonus = 1.0 + ((b - center_b).abs() / (min_span * 0.5)).min(1.5);
+        let score = votes as f32 * support_quality * outerness_bonus;
+        if score > best_score {
+            best_score = score;
+            best_b = Some(b);
+            best_votes = votes;
+            best_span = span;
         }
     }
-    (Some(best_i as f32 - ((hist.len() as f32 - 1.0) * 0.5)), best_v)
+    (best_b, best_votes, best_span)
+}
+
+fn support_span(pts: &[(f32, f32)], m: f32, is_positive: bool, b: f32) -> f32 {
+    let line_tol = 3.0_f32;
+    let mut min_t = f32::INFINITY;
+    let mut max_t = f32::NEG_INFINITY;
+    for (x, y) in pts.iter().copied() {
+        let db = if is_positive { (y - m * x - b).abs() } else { (y + m * x - b).abs() };
+        if db > line_tol { continue; }
+        let t = if is_positive { x + y * m } else { x - y * m };
+        min_t = min_t.min(t);
+        max_t = max_t.max(t);
+    }
+    if min_t.is_finite() && max_t.is_finite() { max_t - min_t } else { 0.0 }
 }
 
 fn intersect_pm(m: f32, b_pos: f32, b_neg: f32) -> Point {
