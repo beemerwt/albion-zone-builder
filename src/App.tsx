@@ -3,6 +3,7 @@ import MapCanvas from "./components/MapCanvas";
 import PortsEditor from "./components/PortsEditor";
 import SearchableDropdown from "./components/SearchableDropdown";
 import Toolbar from "./components/Toolbar";
+import Modal from "./components/Modal";
 import { applyAffine, clamp01, computeAffine, fallbackCorners } from "./lib/affine";
 import { detectMapBoundsWithOpenCv } from "./lib/mapBounds";
 import { PortData, WorldJson, Zone } from "./lib/types";
@@ -307,77 +308,65 @@ export default function App() {
         </div>
       </div>
 
-      {addOpen && (
-        <div
-          className="modal d-block"
-          tabIndex={-1}
-          onKeyDown={(e) => e.key === "Escape" && setAddOpen(false)}
-        >
-          <div className="modal-dialog">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">Add Zone</h5>
-              </div>
-              <div className="modal-body">
-                <input
-                  autoFocus
-                  className={`form-control ${addError ? "is-invalid" : ""}`}
-                  value={addName}
-                  onChange={(e) => {
-                    setAddName(e.target.value);
-                    setAddError("");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") onAddZoneSubmit();
-                    if (e.key === "Escape") {
-                      setAddOpen(false);
-                      setAddName("");
-                      setAddError("");
-                    }
-                  }}
-                  placeholder="Zone name"
-                />
-                {addError && <div className="text-danger small mt-1">{addError}</div>}
-              </div>
-              <div className="modal-footer">
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    setAddOpen(false);
-                    setAddName("");
-                    setAddError("");
-                  }}
-                >
-                  Cancel
-                </button>
-                <button className="btn btn-primary" onClick={onAddZoneSubmit}>
-                  OK
-                </button>
-              </div>
-            </div>
-          </div>
+      <Modal
+        open={addOpen}
+        title="Add Zone"
+        onClose={() => {
+          setAddOpen(false);
+          setAddName("");
+          setAddError("");
+        }}
+      >
+        <div className="modal-body">
+          <input
+            autoFocus
+            className={`form-control ${addError ? "is-invalid" : ""}`}
+            value={addName}
+            onChange={(e) => {
+              setAddName(e.target.value);
+              setAddError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onAddZoneSubmit();
+              if (e.key === "Escape") {
+                setAddOpen(false);
+                setAddName("");
+                setAddError("");
+              }
+            }}
+            placeholder="Zone name"
+          />
+          {addError && <div className="text-danger small mt-1">{addError}</div>}
         </div>
-      )}
+        <div className="modal-footer">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              setAddOpen(false);
+              setAddName("");
+              setAddError("");
+            }}
+          >
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary" onClick={onAddZoneSubmit}>
+            OK
+          </button>
+        </div>
+      </Modal>
 
-      {deleteOpen && (
-        <div className="modal d-block" tabIndex={-1}>
-          <div className="modal-dialog">
-            <div className="modal-content">
-              <div className="modal-body">
-                Are you sure you want to delete {zone?.name ?? zoneId}
-              </div>
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setDeleteOpen(false)}>
-                  No
-                </button>
-                <button className="btn btn-danger" onClick={onDeleteZone}>
-                  Yes
-                </button>
-              </div>
-            </div>
-          </div>
+      <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)}>
+        <div className="modal-body">Are you sure you want to delete {zone?.name ?? zoneId}</div>
+        <div className="modal-footer">
+          <button type="button" className="btn btn-secondary" onClick={() => setDeleteOpen(false)}>
+            No
+          </button>
+          <button type="button" className="btn btn-danger" onClick={onDeleteZone}>
+            Yes
+          </button>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }
