@@ -28,11 +28,30 @@ export async function detectMapBoundsWithWasm(image: HTMLImageElement): Promise<
     await wasm.default();
   }
 
-  const result = wasm.detect_map_bounds_rgba(
-    image.width,
-    image.height,
-    new Uint8Array(imageData.data),
-  ) as WasmDetectResult;
+  if (image.width < 3 || image.height < 3) {
+    throw new Error(`WASM detector requires image >= 3x3, got ${image.width}x${image.height}`);
+  }
+
+  let result: WasmDetectResult;
+  try {
+    result = wasm.detect_map_bounds_rgba(
+      image.width,
+      image.height,
+      new Uint8Array(imageData.data),
+    ) as WasmDetectResult;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("unreachable")) {
+      throw new Error(
+        "WASM detector trapped ('unreachable'). Rebuild generated wasm bindings with `npm run wasm:build` and retry.",
+      );
+    }
+    throw error;
+  }
+
+  if (!result?.corners) {
+    throw new Error("WASM detector returned an invalid result payload");
+  }
 
   return {
     imageData,
