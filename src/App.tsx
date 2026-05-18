@@ -63,6 +63,13 @@ export default function App() {
     [zones],
   );
   const zone = zoneById[zoneId] as Zone | undefined;
+  const zonePortsByZoneId = useMemo(
+    () =>
+      Object.fromEntries(
+        zones.map((z) => [String(z.id ?? ""), Object.keys(z.ports ?? {})]).filter(([id]) => id),
+      ),
+    [zones],
+  );
 
   const zoneOptions = zones
     .map((z) => ({ value: String(z.id ?? ""), label: String(z.name ?? z.id ?? "") }))
@@ -265,7 +272,7 @@ export default function App() {
               rows={rows}
               selecting={selecting}
               zoneOptions={zoneIdOptions}
-              portOptions={zone ? Object.keys(zone.ports ?? {}) : []}
+              zonePortsByZoneId={zonePortsByZoneId}
               onAdd={() => {
                 const next = [
                   ...rows,

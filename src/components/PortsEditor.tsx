@@ -5,7 +5,7 @@ export default function PortsEditor({
   rows,
   selecting,
   zoneOptions,
-  portOptions,
+  zonePortsByZoneId,
   onAdd,
   onChange,
   onRemove,
@@ -14,7 +14,7 @@ export default function PortsEditor({
   rows: PortRowState[];
   selecting: number | null;
   zoneOptions: Option[];
-  portOptions: string[];
+  zonePortsByZoneId: Record<string, string[]>;
   onAdd: () => void;
   onChange: (index: number, row: PortRowState) => void;
   onRemove: (index: number) => void;
@@ -29,7 +29,7 @@ export default function PortsEditor({
           index={i}
           active={selecting === i}
           zoneOptions={zoneOptions}
-          portOptions={portOptions}
+          portOptions={zonePortsByZoneId[r.zoneId] ?? []}
           onChange={onChange}
           onRemove={onRemove}
           onToggle={onToggle}
