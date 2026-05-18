@@ -6,6 +6,7 @@ export type DetectResult = {
   usedPadding: boolean;
   positiveLineCount: number;
   negativeLineCount: number;
+  debug?: unknown;
 };
 
 type WorkerResult = Omit<DetectResult, "imageData">;
