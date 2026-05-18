@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import MapCanvas from "./components/MapCanvas";
+import ImageViewer from "./components/ImageViewer";
 import PortsEditor from "./components/PortsEditor";
 import SearchableDropdown from "./components/SearchableDropdown";
 import Toolbar from "./components/Toolbar";
@@ -289,14 +289,14 @@ export default function App() {
           </div>
         </div>
         <div className="flex-grow-1" style={{ minWidth: 320 }}>
-          <MapCanvas
-            image={image}
-            corners={corners}
-            ports={rows.map((r) => ({ name: r.name, x: r.x, y: r.y }))}
-            project={(u, v) => (affine ? applyAffine(affine.fwd, clamp01(u), clamp01(v)) : null)}
-            onClick={(ix, iy) => {
+          <ImageViewer
+            imageUrl={image?.src ?? null}
+            imageWidth={image?.width}
+            imageHeight={image?.height}
+            resetKey={image?.src}
+            onImageClick={({ x, y }) => {
               if (selecting === null || !affine) return;
-              const [u, v] = applyAffine(affine.inv, ix, iy);
+              const [u, v] = applyAffine(affine.inv, x, y);
               const next = rows.map((r, i) =>
                 i === selecting ? { ...r, x: clamp01(u), y: clamp01(v) } : r,
               );
@@ -304,7 +304,30 @@ export default function App() {
               setSelecting(null);
               syncZone(next);
             }}
-          />
+          >
+            {corners && (
+              <polygon
+                points={["Top", "Right", "Bottom", "Left"]
+                  .map((n) => `${corners[n][0]},${corners[n][1]}`)
+                  .join(" ")}
+                fill="none"
+                stroke="cyan"
+                strokeWidth={2}
+              />
+            )}
+            {rows.map((r) => {
+              const q = affine ? applyAffine(affine.fwd, clamp01(r.x), clamp01(r.y)) : null;
+              if (!q) return null;
+              return (
+                <g key={r.key}>
+                  <circle cx={q[0]} cy={q[1]} r={6} fill="red" />
+                  <text x={q[0] + 8} y={q[1]} fill="white" fontSize="14" dominantBaseline="middle">
+                    {r.name}
+                  </text>
+                </g>
+              );
+            })}
+          </ImageViewer>
         </div>
       </div>
 
