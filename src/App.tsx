@@ -211,6 +211,37 @@ export default function App() {
         canDeleteZone={Boolean(world && zoneId)}
         onOpenAddZone={() => setAddOpen(true)}
         onOpenDeleteZone={() => setDeleteOpen(true)}
+        onLoadWorld={(file) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const raw = typeof reader.result === "string" ? reader.result : "";
+              const parsed = JSON.parse(raw);
+              if (!parsed || typeof parsed !== "object") {
+                throw new Error("Uploaded file is not a valid JSON object.");
+              }
+              if (!Array.isArray((parsed as WorldJson).zones)) {
+                throw new Error("Uploaded world is invalid: expected zones array.");
+              }
+              if (typeof (parsed as WorldJson).schemaVersion !== "number") {
+                throw new Error("Uploaded world is invalid: expected numeric schemaVersion.");
+              }
+              const uploadedWorld = parsed as WorldJson;
+              persistWorld(uploadedWorld);
+              setZoneId("");
+              setRows([]);
+              setSelecting(null);
+              setStatus(`Loaded ${uploadedWorld.zones.length} zones from uploaded file.`);
+            } catch (error) {
+              console.error(error);
+              setStatus("Failed to load uploaded world.json.");
+            }
+          };
+          reader.onerror = () => {
+            setStatus("Failed to read uploaded world.json.");
+          };
+          reader.readAsText(file);
+        }}
         onClearCache={async () => {
           try {
             const serverWorld = await fetchServerWorld();

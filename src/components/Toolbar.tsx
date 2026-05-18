@@ -3,6 +3,7 @@ export default function Toolbar({
   onExport,
   onOpenAddZone,
   onOpenDeleteZone,
+  onLoadWorld,
   onClearCache,
   status,
   canEditWorld,
@@ -12,6 +13,7 @@ export default function Toolbar({
   onExport: () => void;
   onOpenAddZone: () => void;
   onOpenDeleteZone: () => void;
+  onLoadWorld: (file: File) => void;
   onClearCache: () => void;
   status: string;
   canEditWorld: boolean;
@@ -47,6 +49,15 @@ export default function Toolbar({
         Export JSON
       </button>
       <span className="small text-muted flex-grow-1">{status}</span>
+      <label className="btn btn-outline-secondary btn-sm mb-0">
+        Load World
+        <input
+          className="d-none"
+          type="file"
+          accept="application/json,.json"
+          onChange={(e) => e.target.files?.[0] && onLoadWorld(e.target.files[0])}
+        />
+      </label>
       <button
         className="btn btn-outline-warning btn-sm"
         onClick={onClearCache}
