@@ -43,12 +43,16 @@ pub struct DebugInfo {
     pub expected_rgba_len: usize,
     pub actual_rgba_len: usize,
     pub beige_pixel_count: usize,
+    pub strong_parchment_pixel_count: usize,
+    pub weak_parchment_like_pixel_count: usize,
+    pub parchment_score_mean: f32,
     pub boundary_candidate_count: usize,
     pub total_beige_boundary_candidates: usize,
     pub accepted_inner_edge_candidate_count: usize,
     pub rejected_outer_parchment_edge: usize,
     pub rejected_outward_not_beige: usize,
     pub rejected_inward_too_beige: usize,
+    pub rejected_weak_parchment_band: usize,
     pub rejected_too_close_to_center: usize,
     pub rejected_support_too_short: usize,
     pub center_scan_used_tr: bool,
@@ -91,6 +95,7 @@ pub struct DebugInfo {
     pub rejected_outer_parchment_edge_points: Vec<Point>,
     pub center_scan_transition_points: Vec<Point>,
     pub center_scan_rejected_outliers: Vec<Point>,
+    pub rejected_weak_parchment_edge_points: Vec<Point>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -115,6 +120,7 @@ enum CandidateDecision {
     RejectedOuterParchmentEdge,
     RejectedOutwardNotBeige,
     RejectedInwardTooBeige,
+    RejectedWeakBand,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -123,6 +129,9 @@ struct TransitionScore {
     inward_beige: usize,
     outward_non_beige: usize,
     inward_non_beige: usize,
+    outward_avg_score: f32,
+    inward_avg_score: f32,
+    far_out_avg_score: f32,
 }
 #[derive(Default)]
 struct SideScanFit {
@@ -139,6 +148,14 @@ struct ScanSides {
     br: SideScanFit,
     transition_overlay_points: Vec<Point>,
     outlier_overlay_points: Vec<Point>,
+    rejected_weak_band_points: Vec<Point>,
+}
+
+#[derive(Default, Clone, Copy)]
+struct ScoreStats {
+    sum: f32,
+    strong: usize,
+    weak: usize,
 }
 
 fn fallback_corners(width: u32, height: u32) -> Corners {
@@ -180,7 +197,7 @@ pub fn detect_map_bounds_rgba_native(
     let center_b_pos = center_y - m * center_x;
     let center_b_neg = center_y + m * center_x;
 
-    let beige = build_beige_mask(w, h, rgba);
+    let (beige, parchment_score, score_stats) = build_beige_mask(w, h, rgba);
     let beige_count = beige.iter().filter(|v| **v).count();
     let boundary = build_boundary_candidates(w, h, &beige);
     let beige = clean_beige_mask(w, h, &beige);
@@ -205,6 +222,7 @@ pub fn detect_map_bounds_rgba_native(
     let mut rejected_outer_parchment_edge = 0usize;
     let mut rejected_outward_not_beige = 0usize;
     let mut rejected_inward_too_beige = 0usize;
+    let mut rejected_weak_parchment_band = 0usize;
     let mut rejected_too_close_to_center = 0usize;
     let min_center_distance = (width.min(height) as f32) * MIN_CENTER_DISTANCE_FRAC;
 
@@ -226,6 +244,7 @@ pub fn detect_map_bounds_rgba_native(
                 w,
                 h,
                 &beige,
+                &parchment_score,
                 xf,
                 yf,
                 inward_outward_normals((-m, 1.0), xf, yf, center_x, center_y).1,
@@ -251,6 +270,7 @@ pub fn detect_map_bounds_rgba_native(
                     }
                     CandidateDecision::RejectedOutwardNotBeige => rejected_outward_not_beige += 1,
                     CandidateDecision::RejectedInwardTooBeige => rejected_inward_too_beige += 1,
+                    CandidateDecision::RejectedWeakBand => rejected_weak_parchment_band += 1,
                 }
             }
 
@@ -263,6 +283,7 @@ pub fn detect_map_bounds_rgba_native(
                 w,
                 h,
                 &beige,
+                &parchment_score,
                 xf,
                 yf,
                 inward_outward_normals((m, 1.0), xf, yf, center_x, center_y).1,
@@ -288,13 +309,22 @@ pub fn detect_map_bounds_rgba_native(
                     }
                     CandidateDecision::RejectedOutwardNotBeige => rejected_outward_not_beige += 1,
                     CandidateDecision::RejectedInwardTooBeige => rejected_inward_too_beige += 1,
+                    CandidateDecision::RejectedWeakBand => rejected_weak_parchment_band += 1,
                 }
             }
         }
     }
 
     let min_support_span = (width.min(height) as f32) * MIN_SUPPORT_SPAN_FRAC;
-    let scan = center_out_scan_sides(w, h, &beige, m, center_x, center_y, min_support_span);
+    let scan = center_out_scan_sides(
+        w,
+        h,
+        &parchment_score,
+        m,
+        center_x,
+        center_y,
+        min_support_span,
+    );
     let (hist_b_tr, peak_tr, span_tr) = pick_side_peak(
         &tr,
         &tr_pts,
@@ -355,12 +385,16 @@ pub fn detect_map_bounds_rgba_native(
             expected_rgba_len: expected_len,
             actual_rgba_len: rgba.len(),
             beige_pixel_count: beige_count,
+            strong_parchment_pixel_count: score_stats.strong,
+            weak_parchment_like_pixel_count: score_stats.weak,
+            parchment_score_mean: score_stats.sum / (w * h).max(1) as f32,
             boundary_candidate_count: boundary_count,
             total_beige_boundary_candidates: boundary_count,
             accepted_inner_edge_candidate_count: accepted_count,
             rejected_outer_parchment_edge,
             rejected_outward_not_beige,
             rejected_inward_too_beige,
+            rejected_weak_parchment_band,
             rejected_too_close_to_center,
             rejected_support_too_short,
             center_scan_used_tr: scan.tr.final_b.is_some(),
@@ -413,6 +447,7 @@ pub fn detect_map_bounds_rgba_native(
             rejected_outer_parchment_edge_points,
             center_scan_transition_points: scan.transition_overlay_points,
             center_scan_rejected_outliers: scan.outlier_overlay_points,
+            rejected_weak_parchment_edge_points: scan.rejected_weak_band_points,
         },
     };
 
@@ -437,29 +472,66 @@ pub fn detect_map_bounds_rgba_native(
     Ok(result)
 }
 
-fn build_beige_mask(w: usize, h: usize, rgba: &[u8]) -> Vec<bool> {
+fn build_beige_mask(w: usize, h: usize, rgba: &[u8]) -> (Vec<bool>, Vec<f32>, ScoreStats) {
     let mut out = vec![false; w * h];
+    let mut score = vec![0.0_f32; w * h];
+    let mut stats = ScoreStats::default();
     for y in 0..h {
         for x in 0..w {
             let i = (y * w + x) * 4;
             let r = rgba[i] as f32;
             let g = rgba[i + 1] as f32;
             let b = rgba[i + 2] as f32;
-            let dr = r - BEIGE_R;
-            let dg = g - BEIGE_G;
-            let db = b - BEIGE_B;
-            let dist = (dr * dr + dg * dg + db * db).sqrt();
-            let sand_rule = r > g
-                && g > b
-                && (120.0..=245.0).contains(&r)
-                && (90.0..=210.0).contains(&g)
-                && (50.0..=170.0).contains(&b)
-                && (r - g) >= 15.0
-                && (g - b) >= 15.0;
-            out[y * w + x] = dist <= BEIGE_DIST_THRESH || sand_rule;
+            let s = parchment_score(r, g, b);
+            score[y * w + x] = s;
+            stats.sum += s;
+            if s >= 0.68 { stats.strong += 1; }
+            else if s >= 0.42 { stats.weak += 1; }
+            out[y * w + x] = s >= 0.58;
         }
     }
-    out
+    (out, score, stats)
+}
+
+fn parchment_score(r: f32, g: f32, b: f32) -> f32 {
+    let dr = r - BEIGE_R;
+    let dg = g - BEIGE_G;
+    let db = b - BEIGE_B;
+    let dist = (dr * dr + dg * dg + db * db).sqrt();
+    let rgb_score = (1.0 - (dist / 140.0)).clamp(0.0, 1.0);
+    let (h, s, v) = rgb_to_hsv(r, g, b);
+    let hue_score = (1.0 - (hue_delta(h, 33.0) / 35.0)).clamp(0.0, 1.0);
+    let sat_score = (1.0 - ((s - 0.44).abs() / 0.34)).clamp(0.0, 1.0);
+    let val_score = (1.0 - ((v - 0.73).abs() / 0.30)).clamp(0.0, 1.0);
+    let order_bonus = if r > g && g > b { 1.0 } else { 0.0 };
+    let dark_penalty = if v < 0.20 { 0.45 } else { 0.0 };
+    let gray_penalty = if s < 0.15 { 0.35 } else { 0.0 };
+    let non_warm_penalty = if !(18.0..=58.0).contains(&h) { 0.25 } else { 0.0 };
+    (0.35 * rgb_score + 0.25 * hue_score + 0.15 * sat_score + 0.15 * val_score + 0.10 * order_bonus
+        - dark_penalty - gray_penalty - non_warm_penalty).clamp(0.0, 1.0)
+}
+
+fn rgb_to_hsv(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let r = (r / 255.0).clamp(0.0, 1.0);
+    let g = (g / 255.0).clamp(0.0, 1.0);
+    let b = (b / 255.0).clamp(0.0, 1.0);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let d = max - min;
+    let h = if d <= 1e-6 { 0.0 } else if (max - r).abs() < 1e-6 {
+        60.0 * (((g - b) / d) % 6.0)
+    } else if (max - g).abs() < 1e-6 {
+        60.0 * (((b - r) / d) + 2.0)
+    } else {
+        60.0 * (((r - g) / d) + 4.0)
+    };
+    let h = if h < 0.0 { h + 360.0 } else { h };
+    let s = if max <= 1e-6 { 0.0 } else { d / max };
+    (h, s, max)
+}
+fn hue_delta(a: f32, b: f32) -> f32 {
+    let d = (a - b).abs();
+    d.min(360.0 - d)
 }
 fn clean_beige_mask(w: usize, h: usize, beige: &[bool]) -> Vec<bool> {
     let mut out = beige.to_vec();
@@ -484,7 +556,7 @@ fn clean_beige_mask(w: usize, h: usize, beige: &[bool]) -> Vec<bool> {
 fn center_out_scan_sides(
     w: usize,
     h: usize,
-    beige: &[bool],
+    parchment_score: &[f32],
     m: f32,
     cx: f32,
     cy: f32,
@@ -496,7 +568,7 @@ fn center_out_scan_sides(
         let mut points = Vec::new();
         let mut line_off = -0.45_f32;
         while line_off <= 0.45 {
-            if let Some(p) = scan_single_ray(w, h, beige, cx, cy, dx, dy, line_off, m) {
+            if let Some(p) = scan_single_ray(w, h, parchment_score, cx, cy, dx, dy, line_off, m) {
                 points.push(p);
                 push_debug_point(&mut out.transition_overlay_points, p.0, p.1);
             }
@@ -510,7 +582,7 @@ fn center_out_scan_sides(
     out
 }
 fn scan_single_ray(
-    w: usize, h: usize, beige: &[bool], cx: f32, cy: f32, dx: f32, dy: f32, line_off: f32, m: f32,
+    w: usize, h: usize, parchment_score: &[f32], cx: f32, cy: f32, dx: f32, dy: f32, line_off: f32, m: f32,
 ) -> Option<(f32, f32)> {
     let n = (dx * dx + dy * dy).sqrt();
     let (ux, uy) = (dx / n, dy / n);
@@ -524,18 +596,33 @@ fn scan_single_ray(
     let mut d = min_d;
     while d < max_d - 30.0 {
         let mut in_non = 0;
-        let mut out_beige = 0;
+        let mut out_strong = 0;
+        let mut far_non = 0;
         for k in 0..4 {
             let px = (start_x + ux * (d - (k as f32) * step)).round() as i32;
             let py = (start_y + uy * (d - (k as f32) * step)).round() as i32;
-            if px >= 0 && py >= 0 && (px as usize) < w && (py as usize) < h && !beige[py as usize * w + px as usize] { in_non += 1; }
+            if px >= 0 && py >= 0 && (px as usize) < w && (py as usize) < h {
+                let s = parchment_score[py as usize * w + px as usize];
+                if s < 0.45 { in_non += 1; }
+            }
         }
-        for k in 0..5 {
+        for k in 0..7 {
             let px = (start_x + ux * (d + (k as f32) * step)).round() as i32;
             let py = (start_y + uy * (d + (k as f32) * step)).round() as i32;
-            if px >= 0 && py >= 0 && (px as usize) < w && (py as usize) < h && beige[py as usize * w + px as usize] { out_beige += 1; }
+            if px >= 0 && py >= 0 && (px as usize) < w && (py as usize) < h {
+                let s = parchment_score[py as usize * w + px as usize];
+                if s >= 0.62 { out_strong += 1; }
+            }
         }
-        if in_non >= 3 && out_beige >= 4 {
+        for k in 10..15 {
+            let px = (start_x + ux * (d + (k as f32) * step)).round() as i32;
+            let py = (start_y + uy * (d + (k as f32) * step)).round() as i32;
+            if px >= 0 && py >= 0 && (px as usize) < w && (py as usize) < h {
+                let s = parchment_score[py as usize * w + px as usize];
+                if s < 0.42 { far_non += 1; }
+            }
+        }
+        if in_non >= 3 && out_strong >= 5 && far_non >= 3 {
             let x = start_x + ux * d;
             let y = start_y + uy * d;
             let _ = m;
@@ -626,6 +713,7 @@ fn parchment_transition_score(
     w: usize,
     h: usize,
     beige: &[bool],
+    parchment_score: &[f32],
     x: f32,
     y: f32,
     outward: (f32, f32),
@@ -640,6 +728,10 @@ fn parchment_transition_score(
     let mut in_beige = 0usize;
     let mut out_non_beige = 0usize;
     let mut in_non_beige = 0usize;
+    let mut out_score_sum = 0.0_f32;
+    let mut in_score_sum = 0.0_f32;
+    let mut far_out_score_sum = 0.0_f32;
+    let mut far_samples = 0usize;
     let mut samples = 0usize;
     for d in [4.0_f32, 8.0, 12.0, 16.0, 24.0] {
         let ox = (x + nx * d).round() as i32;
@@ -661,10 +753,18 @@ fn parchment_transition_score(
             } else {
                 out_non_beige += 1;
             }
+            out_score_sum += parchment_score[oy as usize * w + ox as usize];
             if beige[iy as usize * w + ix as usize] {
                 in_beige += 1;
             } else {
                 in_non_beige += 1;
+            }
+            in_score_sum += parchment_score[iy as usize * w + ix as usize];
+            let fox = (x + nx * (d + 20.0)).round() as i32;
+            let foy = (y + ny * (d + 20.0)).round() as i32;
+            if fox >= 0 && foy >= 0 && (fox as usize) < w && (foy as usize) < h {
+                far_out_score_sum += parchment_score[foy as usize * w + fox as usize];
+                far_samples += 1;
             }
         }
     }
@@ -676,6 +776,9 @@ fn parchment_transition_score(
             inward_beige: in_beige,
             outward_non_beige: out_non_beige,
             inward_non_beige: in_non_beige,
+            outward_avg_score: out_score_sum / samples as f32,
+            inward_avg_score: in_score_sum / samples as f32,
+            far_out_avg_score: if far_samples > 0 { far_out_score_sum / far_samples as f32 } else { 0.0 },
         })
     }
 }
@@ -683,6 +786,12 @@ fn parchment_transition_score(
 fn classify_transition(score: TransitionScore) -> CandidateDecision {
     if score.inward_beige >= 3 && score.outward_non_beige >= 3 {
         return CandidateDecision::RejectedOuterParchmentEdge;
+    }
+    if score.outward_avg_score < 0.58 || score.inward_avg_score > score.outward_avg_score * 0.92 {
+        return CandidateDecision::RejectedWeakBand;
+    }
+    if score.far_out_avg_score > score.outward_avg_score * 0.95 {
+        return CandidateDecision::RejectedWeakBand;
     }
     if score.outward_beige < 3 || score.outward_beige <= score.inward_beige {
         return CandidateDecision::RejectedOutwardNotBeige;

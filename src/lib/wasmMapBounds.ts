@@ -6,12 +6,16 @@ export type WasmDebug = {
   expected_rgba_len: number;
   actual_rgba_len: number;
   beige_pixel_count: number;
+  strong_parchment_pixel_count: number;
+  weak_parchment_like_pixel_count: number;
+  parchment_score_mean: number;
   boundary_candidate_count: number;
   total_beige_boundary_candidates: number;
   accepted_inner_edge_candidate_count: number;
   rejected_outer_parchment_edge: number;
   rejected_outward_not_beige: number;
   rejected_inward_too_beige: number;
+  rejected_weak_parchment_band: number;
   rejected_too_close_to_center: number;
   rejected_support_too_short: number;
   side_candidate_tr: number;
@@ -48,6 +52,7 @@ export type WasmDebug = {
   rejected_outer_parchment_edge_points?: Array<[number, number]>;
   center_scan_transition_points?: Array<[number, number]>;
   center_scan_rejected_outliers?: Array<[number, number]>;
+  rejected_weak_parchment_edge_points?: Array<[number, number]>;
 };
 
 type WasmDetectResult = {

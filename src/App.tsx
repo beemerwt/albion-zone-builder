@@ -408,6 +408,18 @@ export default function App() {
                 opacity={0.8}
               />
             ))}
+            {detectorDebug?.rejected_weak_parchment_edge_points
+              ?.slice(0, 2000)
+              .map(([x, y], index) => (
+                <circle
+                  key={`weak-band-${index}`}
+                  cx={x}
+                  cy={y}
+                  r={1.4}
+                  fill="gold"
+                  opacity={0.8}
+                />
+              ))}
             {corners && detectorDebug?.final_corners && (
               <polygon
                 points={["Top", "Right", "Bottom", "Left"]
