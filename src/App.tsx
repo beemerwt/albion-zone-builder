@@ -17,6 +17,7 @@ import {
 } from "./lib/worldJson";
 import { detectMapBoundsWithWasm } from "./lib/wasmMapBounds";
 import { PortRowState } from "./components/PortRow";
+import { validateWorldJson, ValidationError } from "./lib/validateWorldJson";
 
 function portsToRows(zone?: Zone): PortRowState[] {
   return Object.entries(zone?.ports ?? {}).map(([name, p], i) => ({
@@ -44,6 +45,7 @@ export default function App() {
   const [addError, setAddError] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [viewerResetKey, setViewerResetKey] = useState(0);
+  const [validationErrors, setValidationErrors] = useState<ValidationError[] | null>(null);
 
   const zones = world?.zones ?? [];
   const zoneById = useMemo(
@@ -182,6 +184,12 @@ export default function App() {
     setStatus(`Added zone ${displayName}.`);
   };
 
+  const runValidation = () => {
+    if (!world) return;
+    const result = validateWorldJson(world);
+    setValidationErrors(result.errors);
+  };
+
   const onDeleteZone = () => {
     if (!world || !zoneId) return;
     const nextZones = world.zones.filter((z) => String(z.id ?? "") !== zoneId);
@@ -293,6 +301,11 @@ export default function App() {
           img.src = url;
         }}
         onExport={() => world && downloadJson("world.updated.json", world)}
+        onValidate={runValidation}
+        validationErrors={validationErrors}
+        onSelectValidationZone={(nextZoneId) =>
+          selectZoneById(nextZoneId, undefined, { resetViewer: true })
+        }
       />
 
       <div className="flex-grow-1 d-flex overflow-hidden">
