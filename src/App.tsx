@@ -388,6 +388,26 @@ export default function App() {
                 opacity={0.85}
               />
             ))}
+            {detectorDebug?.center_scan_transition_points?.slice(0, 2500).map(([x, y], index) => (
+              <circle
+                key={`scan-point-${index}`}
+                cx={x}
+                cy={y}
+                r={1.2}
+                fill="deepskyblue"
+                opacity={0.9}
+              />
+            ))}
+            {detectorDebug?.center_scan_rejected_outliers?.slice(0, 2000).map(([x, y], index) => (
+              <circle
+                key={`scan-outlier-${index}`}
+                cx={x}
+                cy={y}
+                r={1.2}
+                fill="red"
+                opacity={0.8}
+              />
+            ))}
             {corners && detectorDebug?.final_corners && (
               <polygon
                 points={["Top", "Right", "Bottom", "Left"]

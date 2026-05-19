@@ -46,6 +46,8 @@ export type WasmDebug = {
   overlay_points?: Array<[number, number]>;
   accepted_inner_edge_points?: Array<[number, number]>;
   rejected_outer_parchment_edge_points?: Array<[number, number]>;
+  center_scan_transition_points?: Array<[number, number]>;
+  center_scan_rejected_outliers?: Array<[number, number]>;
 };
 
 type WasmDetectResult = {

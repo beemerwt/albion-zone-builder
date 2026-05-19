@@ -9,6 +9,7 @@ const BEIGE_DIST_THRESH: f32 = 62.0;
 const ANGLE_DEG: f32 = 35.1;
 const MIN_CENTER_DISTANCE_FRAC: f32 = 0.32;
 const MIN_SUPPORT_SPAN_FRAC: f32 = 0.35;
+const MIN_SCAN_CENTER_DISTANCE_FRAC: f32 = 0.22;
 const MAX_DEBUG_POINTS: usize = 10_000;
 
 #[derive(Debug, Clone, Serialize)]
@@ -50,6 +51,22 @@ pub struct DebugInfo {
     pub rejected_inward_too_beige: usize,
     pub rejected_too_close_to_center: usize,
     pub rejected_support_too_short: usize,
+    pub center_scan_used_tr: bool,
+    pub center_scan_used_bl: bool,
+    pub center_scan_used_tl: bool,
+    pub center_scan_used_br: bool,
+    pub center_scan_points_tr: usize,
+    pub center_scan_points_bl: usize,
+    pub center_scan_points_tl: usize,
+    pub center_scan_points_br: usize,
+    pub center_scan_outliers_tr: usize,
+    pub center_scan_outliers_bl: usize,
+    pub center_scan_outliers_tl: usize,
+    pub center_scan_outliers_br: usize,
+    pub center_scan_raw_median_tr: Option<f32>,
+    pub center_scan_raw_median_bl: Option<f32>,
+    pub center_scan_raw_median_tl: Option<f32>,
+    pub center_scan_raw_median_br: Option<f32>,
     pub side_candidate_tr: usize,
     pub side_candidate_bl: usize,
     pub side_candidate_tl: usize,
@@ -72,6 +89,8 @@ pub struct DebugInfo {
     pub overlay_points: Vec<Point>,
     pub accepted_inner_edge_points: Vec<Point>,
     pub rejected_outer_parchment_edge_points: Vec<Point>,
+    pub center_scan_transition_points: Vec<Point>,
+    pub center_scan_rejected_outliers: Vec<Point>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,6 +123,22 @@ struct TransitionScore {
     inward_beige: usize,
     outward_non_beige: usize,
     inward_non_beige: usize,
+}
+#[derive(Default)]
+struct SideScanFit {
+    raw_points: Vec<(f32, f32)>,
+    raw_median_b: Option<f32>,
+    final_b: Option<f32>,
+    outlier_count: usize,
+}
+#[derive(Default)]
+struct ScanSides {
+    tr: SideScanFit,
+    bl: SideScanFit,
+    tl: SideScanFit,
+    br: SideScanFit,
+    transition_overlay_points: Vec<Point>,
+    outlier_overlay_points: Vec<Point>,
 }
 
 fn fallback_corners(width: u32, height: u32) -> Corners {
@@ -148,6 +183,7 @@ pub fn detect_map_bounds_rgba_native(
     let beige = build_beige_mask(w, h, rgba);
     let beige_count = beige.iter().filter(|v| **v).count();
     let boundary = build_boundary_candidates(w, h, &beige);
+    let beige = clean_beige_mask(w, h, &beige);
 
     let diag = ((w * w + h * h) as f32).sqrt().ceil() as i32;
     let bins = (diag * 2 + 1) as usize;
@@ -258,7 +294,8 @@ pub fn detect_map_bounds_rgba_native(
     }
 
     let min_support_span = (width.min(height) as f32) * MIN_SUPPORT_SPAN_FRAC;
-    let (b_tr, peak_tr, span_tr) = pick_side_peak(
+    let scan = center_out_scan_sides(w, h, &beige, m, center_x, center_y, min_support_span);
+    let (hist_b_tr, peak_tr, span_tr) = pick_side_peak(
         &tr,
         &tr_pts,
         m,
@@ -268,7 +305,7 @@ pub fn detect_map_bounds_rgba_native(
         diag,
         4,
     );
-    let (b_bl, peak_bl, span_bl) = pick_side_peak(
+    let (hist_b_bl, peak_bl, span_bl) = pick_side_peak(
         &bl,
         &bl_pts,
         m,
@@ -278,7 +315,7 @@ pub fn detect_map_bounds_rgba_native(
         diag,
         4,
     );
-    let (b_tl, peak_tl, span_tl) = pick_side_peak(
+    let (hist_b_tl, peak_tl, span_tl) = pick_side_peak(
         &tl,
         &tl_pts,
         m,
@@ -288,7 +325,7 @@ pub fn detect_map_bounds_rgba_native(
         diag,
         4,
     );
-    let (b_br, peak_br, span_br) = pick_side_peak(
+    let (hist_b_br, peak_br, span_br) = pick_side_peak(
         &br,
         &br_pts,
         m,
@@ -298,6 +335,10 @@ pub fn detect_map_bounds_rgba_native(
         diag,
         4,
     );
+    let b_tr = scan.tr.final_b.or(hist_b_tr);
+    let b_bl = scan.bl.final_b.or(hist_b_bl);
+    let b_tl = scan.tl.final_b.or(hist_b_tl);
+    let b_br = scan.br.final_b.or(hist_b_br);
     let rejected_support_too_short = usize::from(b_tr.is_none())
         + usize::from(b_bl.is_none())
         + usize::from(b_tl.is_none())
@@ -322,6 +363,22 @@ pub fn detect_map_bounds_rgba_native(
             rejected_inward_too_beige,
             rejected_too_close_to_center,
             rejected_support_too_short,
+            center_scan_used_tr: scan.tr.final_b.is_some(),
+            center_scan_used_bl: scan.bl.final_b.is_some(),
+            center_scan_used_tl: scan.tl.final_b.is_some(),
+            center_scan_used_br: scan.br.final_b.is_some(),
+            center_scan_points_tr: scan.tr.raw_points.len(),
+            center_scan_points_bl: scan.bl.raw_points.len(),
+            center_scan_points_tl: scan.tl.raw_points.len(),
+            center_scan_points_br: scan.br.raw_points.len(),
+            center_scan_outliers_tr: scan.tr.outlier_count,
+            center_scan_outliers_bl: scan.bl.outlier_count,
+            center_scan_outliers_tl: scan.tl.outlier_count,
+            center_scan_outliers_br: scan.br.outlier_count,
+            center_scan_raw_median_tr: scan.tr.raw_median_b,
+            center_scan_raw_median_bl: scan.bl.raw_median_b,
+            center_scan_raw_median_tl: scan.tl.raw_median_b,
+            center_scan_raw_median_br: scan.br.raw_median_b,
             side_candidate_tr: tr_pts.len(),
             side_candidate_bl: bl_pts.len(),
             side_candidate_tl: tl_pts.len(),
@@ -354,6 +411,8 @@ pub fn detect_map_bounds_rgba_native(
             overlay_points: accepted_inner_edge_points.clone(),
             accepted_inner_edge_points,
             rejected_outer_parchment_edge_points,
+            center_scan_transition_points: scan.transition_overlay_points,
+            center_scan_rejected_outliers: scan.outlier_overlay_points,
         },
     };
 
@@ -401,6 +460,112 @@ fn build_beige_mask(w: usize, h: usize, rgba: &[u8]) -> Vec<bool> {
         }
     }
     out
+}
+fn clean_beige_mask(w: usize, h: usize, beige: &[bool]) -> Vec<bool> {
+    let mut out = beige.to_vec();
+    for _ in 0..2 {
+        let src = out.clone();
+        for y in 1..h - 1 {
+            for x in 1..w - 1 {
+                let mut c = 0;
+                for ny in (y - 1)..=(y + 1) {
+                    for nx in (x - 1)..=(x + 1) {
+                        if src[ny * w + nx] {
+                            c += 1;
+                        }
+                    }
+                }
+                out[y * w + x] = c >= 5;
+            }
+        }
+    }
+    out
+}
+fn center_out_scan_sides(
+    w: usize,
+    h: usize,
+    beige: &[bool],
+    m: f32,
+    cx: f32,
+    cy: f32,
+    min_span: f32,
+) -> ScanSides {
+    let mut out = ScanSides::default();
+    let dirs = [(-m, -1.0), (m, 1.0), (-1.0, m), (1.0, -m)];
+    for (si, (dx, dy)) in dirs.into_iter().enumerate() {
+        let mut points = Vec::new();
+        let mut line_off = -0.45_f32;
+        while line_off <= 0.45 {
+            if let Some(p) = scan_single_ray(w, h, beige, cx, cy, dx, dy, line_off, m) {
+                points.push(p);
+                push_debug_point(&mut out.transition_overlay_points, p.0, p.1);
+            }
+            line_off += 0.03;
+        }
+        let fit = fit_side_points(&points, m, si, cx, cy, min_span);
+        if let Some(side) = match si { 0 => Some(&mut out.tr), 1 => Some(&mut out.bl), 2 => Some(&mut out.tl), _ => Some(&mut out.br) } {
+            *side = fit;
+        }
+    }
+    out
+}
+fn scan_single_ray(
+    w: usize, h: usize, beige: &[bool], cx: f32, cy: f32, dx: f32, dy: f32, line_off: f32, m: f32,
+) -> Option<(f32, f32)> {
+    let n = (dx * dx + dy * dy).sqrt();
+    let (ux, uy) = (dx / n, dy / n);
+    let tx = -uy;
+    let ty = ux;
+    let start_x = cx + tx * line_off * (w.min(h) as f32);
+    let start_y = cy + ty * line_off * (w.min(h) as f32);
+    let min_d = (w.min(h) as f32) * MIN_SCAN_CENTER_DISTANCE_FRAC;
+    let max_d = (w.max(h) as f32) * 0.75;
+    let step = 3.0_f32;
+    let mut d = min_d;
+    while d < max_d - 30.0 {
+        let mut in_non = 0;
+        let mut out_beige = 0;
+        for k in 0..4 {
+            let px = (start_x + ux * (d - (k as f32) * step)).round() as i32;
+            let py = (start_y + uy * (d - (k as f32) * step)).round() as i32;
+            if px >= 0 && py >= 0 && (px as usize) < w && (py as usize) < h && !beige[py as usize * w + px as usize] { in_non += 1; }
+        }
+        for k in 0..5 {
+            let px = (start_x + ux * (d + (k as f32) * step)).round() as i32;
+            let py = (start_y + uy * (d + (k as f32) * step)).round() as i32;
+            if px >= 0 && py >= 0 && (px as usize) < w && (py as usize) < h && beige[py as usize * w + px as usize] { out_beige += 1; }
+        }
+        if in_non >= 3 && out_beige >= 4 {
+            let x = start_x + ux * d;
+            let y = start_y + uy * d;
+            let _ = m;
+            return Some((x, y));
+        }
+        d += step;
+    }
+    None
+}
+fn fit_side_points(points: &[(f32, f32)], m: f32, side: usize, cx: f32, cy: f32, min_span: f32) -> SideScanFit {
+    let mut fit = SideScanFit { raw_points: points.to_vec(), ..Default::default() };
+    if points.len() < 8 { return fit; }
+    let mut bs: Vec<f32> = points.iter().map(|(x,y)| if side <=1 { y - m* x } else { y + m * x }).collect();
+    bs.sort_by(|a,b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median = bs[bs.len()/2];
+    fit.raw_median_b = Some(median);
+    let tol = 14.0_f32;
+    let inliers: Vec<(f32,f32)> = points.iter().copied().filter(|(x,y)| {
+        let b = if side <=1 { y - m*x } else { y + m*x };
+        (b - median).abs() <= tol
+    }).collect();
+    fit.outlier_count = points.len().saturating_sub(inliers.len());
+    let span = if side <=1 { support_span(&inliers, m, true, median) } else { support_span(&inliers, m, false, median) };
+    if inliers.len() < 6 || span < min_span { return fit; }
+    let avg = inliers.iter().map(|(x,y)| if side <=1 { y - m*x } else { y + m*x }).sum::<f32>() / inliers.len() as f32;
+    if (side == 0 && !(avg < cy - m*cx)) || (side==1 && !(avg > cy - m*cx)) || (side==2 && !(avg < cy + m*cx)) || (side==3 && !(avg > cy + m*cx)) {
+        return fit;
+    }
+    fit.final_b = Some(avg);
+    fit
 }
 
 fn build_boundary_candidates(w: usize, h: usize, beige: &[bool]) -> Vec<bool> {
