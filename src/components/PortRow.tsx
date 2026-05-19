@@ -7,6 +7,7 @@ export type PortRowState = {
   y: number;
   zoneId: string;
   port: string;
+  type: "" | "one-to-one" | "many-to-one";
 };
 
 export default function PortRow({
@@ -71,7 +72,7 @@ export default function PortRow({
         </div>
       </div>
       <div className="row g-2 align-items-end mt-1">
-        <div className="col-md-7">
+        <div className="col-md-4">
           <label className="form-label small">Connect zone</label>
           <SearchableDropdown
             options={zoneOptions}
@@ -86,6 +87,23 @@ export default function PortRow({
             value={row.port}
             onChange={(v) => onChange(index, { ...row, port: v.toUpperCase() })}
           />
+        </div>
+        <div className="col-md-3">
+          <label className="form-label small">Type</label>
+          <select
+            className="form-select"
+            value={row.type}
+            onChange={(e) =>
+              onChange(index, {
+                ...row,
+                type: e.target.value as "" | "one-to-one" | "many-to-one",
+              })
+            }
+          >
+            <option value="">Default (one-to-one)</option>
+            <option value="one-to-one">one-to-one</option>
+            <option value="many-to-one">many-to-one</option>
+          </select>
         </div>
         <div className="col-md-1">
           <button className="btn btn-outline-danger p-1 w-100" onClick={() => onRemove(index)}>

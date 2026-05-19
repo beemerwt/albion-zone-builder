@@ -4,7 +4,8 @@ export type CornerName = "Top" | "Right" | "Bottom" | "Left";
 export type PortData = {
   x: number;
   y: number;
-  connectsTo: { zoneId: string; port: string };
+  connectsTo?: { zoneId: string; port: string };
+  type?: "one-to-one" | "many-to-one";
 };
 
 export type Zone = {
