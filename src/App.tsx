@@ -15,7 +15,7 @@ import {
   saveWorldToLocalStorage,
   zoneIdFromName,
 } from "./lib/worldJson";
-import { detectMapBoundsWithWasm, type WasmDebug } from "./lib/wasmMapBounds";
+import { detectMapBoundsWithWasm } from "./lib/wasmMapBounds";
 import { PortRowState } from "./components/PortRow";
 
 function portsToRows(zone?: Zone): PortRowState[] {
@@ -44,7 +44,6 @@ export default function App() {
   const [addError, setAddError] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [viewerResetKey, setViewerResetKey] = useState(0);
-  const [detectorDebug, setDetectorDebug] = useState<WasmDebug | null>(null);
 
   const zones = world?.zones ?? [];
   const zoneById = useMemo(
@@ -264,10 +263,8 @@ export default function App() {
             setViewerResetKey((k) => k + 1);
             setDetecting(true);
             setStatus("Detecting map bounds...");
-            setDetectorDebug(null);
             try {
               const detected = await detectMapBoundsWithWasm(img);
-              setDetectorDebug((detected.debug as WasmDebug | undefined) ?? null);
               setCorners(detected.corners as any);
               setAffine(computeAffine(detected.corners as any));
               setStatus(
@@ -277,7 +274,6 @@ export default function App() {
               console.error("WASM map-bound detection failed", wasmError);
               try {
                 const detected = await detectMapBoundsWithOpenCv(img);
-                setDetectorDebug(null);
                 setCorners(detected.corners as any);
                 setAffine(computeAffine(detected.corners as any));
                 setStatus(
@@ -286,7 +282,6 @@ export default function App() {
               } catch (opencvError) {
                 console.error("OpenCV map-bound detection failed", opencvError);
                 const c = fallbackCorners(img.width, img.height);
-                setDetectorDebug(null);
                 setCorners(c);
                 setAffine(computeAffine(c));
                 setStatus("WASM and OpenCV detection failed; using fallback corners.");
@@ -356,81 +351,6 @@ export default function App() {
               syncZone(next);
             }}
           >
-            {detectorDebug?.rejected_outer_parchment_edge_points
-              ?.slice(0, 2500)
-              .map(([x, y], index) => (
-                <g key={`rejected-outer-${index}`}>
-                  <line
-                    x1={x - 2}
-                    y1={y - 2}
-                    x2={x + 2}
-                    y2={y + 2}
-                    stroke="orange"
-                    strokeWidth={1}
-                  />
-                  <line
-                    x1={x - 2}
-                    y1={y + 2}
-                    x2={x + 2}
-                    y2={y - 2}
-                    stroke="orange"
-                    strokeWidth={1}
-                  />
-                </g>
-              ))}
-            {detectorDebug?.accepted_inner_edge_points?.slice(0, 2500).map(([x, y], index) => (
-              <circle
-                key={`accepted-inner-${index}`}
-                cx={x}
-                cy={y}
-                r={1.5}
-                fill="lime"
-                opacity={0.85}
-              />
-            ))}
-            {detectorDebug?.center_scan_transition_points?.slice(0, 2500).map(([x, y], index) => (
-              <circle
-                key={`scan-point-${index}`}
-                cx={x}
-                cy={y}
-                r={1.2}
-                fill="deepskyblue"
-                opacity={0.9}
-              />
-            ))}
-            {detectorDebug?.center_scan_rejected_outliers?.slice(0, 2000).map(([x, y], index) => (
-              <circle
-                key={`scan-outlier-${index}`}
-                cx={x}
-                cy={y}
-                r={1.2}
-                fill="red"
-                opacity={0.8}
-              />
-            ))}
-            {detectorDebug?.rejected_weak_parchment_edge_points
-              ?.slice(0, 2000)
-              .map(([x, y], index) => (
-                <circle
-                  key={`weak-band-${index}`}
-                  cx={x}
-                  cy={y}
-                  r={1.4}
-                  fill="gold"
-                  opacity={0.8}
-                />
-              ))}
-            {corners && detectorDebug?.final_corners && (
-              <polygon
-                points={["Top", "Right", "Bottom", "Left"]
-                  .map((n) => `${corners[n][0]},${corners[n][1]}`)
-                  .join(" ")}
-                fill="none"
-                stroke="magenta"
-                strokeDasharray="10 6"
-                strokeWidth={3}
-              />
-            )}
             {corners && (
               <polygon
                 points={["Top", "Right", "Bottom", "Left"]
