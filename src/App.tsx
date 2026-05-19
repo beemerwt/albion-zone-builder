@@ -27,6 +27,7 @@ function portsToRows(zone?: Zone): PortRowState[] {
     y: p.y ?? 0,
     zoneId: p.connectsTo?.zoneId ?? "",
     port: p.connectsTo?.port ?? "",
+    type: p.type ?? "",
   }));
 }
 
@@ -147,7 +148,10 @@ export default function App() {
       ports[n] = {
         x: clamp01(r.x),
         y: clamp01(r.y),
-        connectsTo: { zoneId: r.zoneId ?? "", port: (r.port ?? "").toUpperCase() },
+        ...(r.zoneId?.trim() && r.port?.trim()
+          ? { connectsTo: { zoneId: r.zoneId, port: r.port.toUpperCase() } }
+          : {}),
+        ...(r.type ? { type: r.type } : {}),
       };
     }
     const nextZones = world.zones.map((z) => (z === zone ? { ...z, ports } : z));
@@ -300,7 +304,7 @@ export default function App() {
           };
           img.src = url;
         }}
-        onExport={() => world && downloadJson("world.updated.json", world)}
+        onExport={() => world && downloadJson("world.updated.json", { ...world, schemaVersion: 2 })}
         onValidate={runValidation}
         validationErrors={validationErrors}
         onSelectValidationZone={(nextZoneId) =>
@@ -328,7 +332,15 @@ export default function App() {
               onAdd={() => {
                 const next = [
                   ...rows,
-                  { key: crypto.randomUUID(), name: "", x: 0, y: 0, zoneId: "", port: "" },
+                  {
+                    key: crypto.randomUUID(),
+                    name: "",
+                    x: 0,
+                    y: 0,
+                    zoneId: "",
+                    port: "",
+                    type: "" as const,
+                  },
                 ];
                 setRows(next);
                 syncZone(next);

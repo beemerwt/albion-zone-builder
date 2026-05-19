@@ -7,7 +7,7 @@ export function isValidWorldJson(data: unknown): data is WorldJson {
   const world = data as Record<string, unknown>;
   const schemaVersion = world.schemaVersion;
   if (schemaVersion === undefined || schemaVersion === null) return false;
-  if (typeof schemaVersion !== "number") return false;
+  if (schemaVersion !== 1 && schemaVersion !== 2) return false;
   return Array.isArray(world.zones);
 }
 
