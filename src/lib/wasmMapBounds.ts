@@ -5,14 +5,54 @@ export type WasmDebug = {
   height: number;
   expected_rgba_len: number;
   actual_rgba_len: number;
-  total_raw_line_count: number;
-  accepted_positive_line_count: number;
-  accepted_negative_line_count: number;
-  accepted_lines: Array<Record<string, number | string>>;
-  top_right?: Record<string, unknown>;
-  bottom_left?: Record<string, unknown>;
-  top_left?: Record<string, unknown>;
-  bottom_right?: Record<string, unknown>;
+  beige_pixel_count: number;
+  strong_parchment_pixel_count: number;
+  weak_parchment_like_pixel_count: number;
+  parchment_score_mean: number;
+  boundary_candidate_count: number;
+  total_beige_boundary_candidates: number;
+  accepted_inner_edge_candidate_count: number;
+  rejected_outer_parchment_edge: number;
+  rejected_outward_not_beige: number;
+  rejected_inward_too_beige: number;
+  rejected_weak_parchment_band: number;
+  rejected_too_close_to_center: number;
+  rejected_support_too_short: number;
+  side_candidate_tr: number;
+  side_candidate_bl: number;
+  side_candidate_tl: number;
+  side_candidate_br: number;
+  b_tr?: number;
+  b_bl?: number;
+  b_tl?: number;
+  b_br?: number;
+  selected_intercepts?: {
+    top_right?: number;
+    bottom_left?: number;
+    top_left?: number;
+    bottom_right?: number;
+  };
+  peak_tr: number;
+  peak_bl: number;
+  peak_tl: number;
+  peak_br: number;
+  span_tr: number;
+  span_bl: number;
+  span_tl: number;
+  span_br: number;
+  support_span?: {
+    top_right: number;
+    bottom_left: number;
+    top_left: number;
+    bottom_right: number;
+  };
+  final_corners?: DetectResult["corners"];
+  overlay_points?: Array<[number, number]>;
+  accepted_inner_edge_points?: Array<[number, number]>;
+  rejected_outer_parchment_edge_points?: Array<[number, number]>;
+  center_scan_transition_points?: Array<[number, number]>;
+  center_scan_rejected_outliers?: Array<[number, number]>;
+  rejected_weak_parchment_edge_points?: Array<[number, number]>;
 };
 
 type WasmDetectResult = {
@@ -113,6 +153,7 @@ export async function detectMapBoundsWithWasm(image: HTMLImageElement): Promise<
       usedPadding: result.usedPadding,
       positiveLineCount: result.positiveLineCount,
       negativeLineCount: result.negativeLineCount,
+      debug: result.debug,
     };
   } catch (error) {
     const args = summarizeArgs(image.width, image.height, rgba);
